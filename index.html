@@ -154,13 +154,13 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   const renderer = new T.WebGLRenderer({ canvas: view, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
   renderer.outputEncoding = T.sRGBEncoding;
-  renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
+  renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
   const scene = new T.Scene();
   const camera = new T.PerspectiveCamera(60, 1, 0.05, 900);
-  const FOG = '#544966';
+  const FOG = '#64656d';
   scene.fog = new T.Fog(FOG, 52, 205);
   scene.background = new T.Color(FOG).convertSRGBToLinear();
-  const hemi = new T.HemisphereLight(0x8fa6cf, 0x3b2730, 0.72); scene.add(hemi);
+  const hemi = new T.HemisphereLight(0x9badc6, 0x493e38, 0.76); scene.add(hemi);
   const sun = new T.DirectionalLight(0xffb879, 1.0); sun.position.set(60, 110, 35); scene.add(sun); scene.add(sun.target);
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
   sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
@@ -168,8 +168,18 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   sun.shadow.bias = -0.00025; sun.shadow.normalBias = 0.5; sun.shadow.radius = 2;
 
   const col = h => new T.Color(h).convertSRGBToLinear();
+  const maxAnisotropy = Math.max(1, renderer.capabilities.getMaxAnisotropy());
+  const managedTextures = new Set();
+  let textureAnisotropy = Math.min(8, maxAnisotropy);
   function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; }
-  function tex(c, repeat) { const t = new T.CanvasTexture(c); t.encoding = T.sRGBEncoding; t.anisotropy = 4; if (repeat) t.wrapS = t.wrapT = T.RepeatWrapping; return t; }
+  function finishTexture(t, color, repeat) {
+    if (color) t.encoding = T.sRGBEncoding;
+    if (repeat) t.wrapS = t.wrapT = T.RepeatWrapping;
+    const im = t.image;
+    if (im && T.MathUtils.isPowerOfTwo(im.width) && T.MathUtils.isPowerOfTwo(im.height)) { t.generateMipmaps = true; t.minFilter = T.LinearMipmapLinearFilter; }
+    t.magFilter = T.LinearFilter; t.anisotropy = textureAnisotropy; managedTextures.add(t); return t;
+  }
+  function tex(c, repeat) { return finishTexture(new T.CanvasTexture(c), true, repeat); }
   const mats = new Map();
   let lowCityMaterials = false;
   // City materials carry a base + tint; the city builder swaps them for a few shared vertex-coloured materials
@@ -183,9 +193,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       const dx = (g(i + 1, j) - g(i - 1, j)) / 255 * strength, dy = (g(i, j + 1) - g(i, j - 1)) / 255 * strength, L = Math.hypot(dx, dy, 1);
       const k = (j * w + i) * 4; o[k] = (-dx / L * 0.5 + 0.5) * 255; o[k + 1] = (-dy / L * 0.5 + 0.5) * 255; o[k + 2] = (1 / L * 0.5 + 0.5) * 255; o[k + 3] = 255;
     }
-    x.putImageData(out, 0, 0); const t = new T.CanvasTexture(c); t.wrapS = t.wrapT = T.RepeatWrapping; t.anisotropy = 8; return t;
+    x.putImageData(out, 0, 0); return finishTexture(new T.CanvasTexture(c), false, true);
   }
-  function texMat(t, h) { return new T.MeshStandardMaterial({ map: t, color: col(h || '#ffffff'), metalness: 0.02, roughness: 0.84 }); }
+  function texMat(t, h) { return new T.MeshStandardMaterial({ map: t, color: col(h || '#ffffff'), metalness: 0, roughness: 0.92, envMapIntensity: 0.2 }); }
 
   // ---------- procedural sunset/night skies and prefiltered reflection maps
   function makeSky(mode) {
@@ -244,41 +254,23 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   }
 
   // ---------- textures
+  const ASPHALT_TILE = 4; // metres represented by one procedural texture repeat
   const asphaltTex = (function () {
     const [c, x] = makeCanvas(1024, 1024), r = rng(41);
-    x.fillStyle = '#44454a'; x.fillRect(0, 0, 1024, 1024);
-    for (let i = 0; i < 90000; i++) { const a = r(); x.fillStyle = a < 0.5 ? 'rgba(255,255,255,' + (0.03 + r() * 0.07) + ')' : 'rgba(0,0,0,' + (0.06 + r() * 0.12) + ')'; const s = 1 + (r() * 3 | 0); x.fillRect(r() * 1024, r() * 1024, s, s); }
-    for (let k = 0; k < 40; k++) { x.fillStyle = 'rgba(0,0,0,' + (0.04 + r() * 0.06) + ')'; x.beginPath(); x.ellipse(r() * 1024, r() * 1024, 40 + r() * 160, 20 + r() * 90, r() * 3, 0, Math.PI * 2); x.fill(); }
-    x.strokeStyle = 'rgba(20,20,24,.55)'; x.lineWidth = 2;
-    for (let k = 0; k < 14; k++) { let px = r() * 1024, py = r() * 1024; x.beginPath(); x.moveTo(px, py); for (let s = 0; s < 12; s++) { px += (r() - 0.5) * 70; py += (r() - 0.5) * 70; x.lineTo(px, py); } x.stroke(); }
+    x.fillStyle = '#55575a'; x.fillRect(0, 0, 1024, 1024);
+    // Aggregate is kept small enough to read as real asphalt at 256 px/metre.
+    for (let i = 0; i < 105000; i++) { const a = r(), v = 38 + (r() * 82 | 0), alpha = 0.025 + r() * 0.1; x.fillStyle = a < 0.54 ? 'rgba(' + v + ',' + v + ',' + v + ',' + alpha + ')' : 'rgba(205,202,194,' + alpha * 0.45 + ')'; const s = 1 + (r() * 2.2 | 0); x.fillRect(r() * 1024, r() * 1024, s, s); }
+    // Soft patches and sealed cracks break up repetition without making the road glossy.
+    for (let k = 0; k < 34; k++) { x.fillStyle = 'rgba(20,21,23,' + (0.025 + r() * 0.045) + ')'; x.beginPath(); x.ellipse(r() * 1024, r() * 1024, 35 + r() * 130, 18 + r() * 65, r() * 3, 0, Math.PI * 2); x.fill(); }
+    x.strokeStyle = 'rgba(24,25,27,.42)'; x.lineWidth = 1.4;
+    for (let k = 0; k < 12; k++) { let px = r() * 1024, py = r() * 1024; x.beginPath(); x.moveTo(px, py); for (let s = 0; s < 9; s++) { px += (r() - 0.5) * 55; py += (r() - 0.5) * 55; x.lineTo(px, py); } x.stroke(); }
     return c;
   })();
   const asphaltNormal = heightToNormal(asphaltTex, 1.6);
-  function roadCanvas() {
-    const [c, x] = makeCanvas(192, 256); // 12 m wide, 16 m long
-    x.drawImage(asphaltTex, 0, 0, 192, 256);
-    const px = m => (m + 6) / 12 * 192;
-    x.fillStyle = '#f2c230'; x.fillRect(px(-0.22) - 1.5, 0, 3, 256); x.fillRect(px(0.22) - 1.5, 0, 3, 256);
-    x.fillStyle = '#ecebe6'; x.fillRect(px(-5.55) - 1.5, 0, 3, 256); x.fillRect(px(5.55) - 1.5, 0, 3, 256);
-    return c;
-  }
-  const roadMat = texMat(tex(roadCanvas(), true));
-  const plainMat = new T.MeshStandardMaterial({ map: tex(asphaltTex, true), normalMap: asphaltNormal, normalScale: new T.Vector2(0.55, 0.55), color: col('#9aa0a8'), roughness: 0.42, metalness: 0.08, envMapIntensity: 1.1 });
-  const zebraMat = (function () {
-    const [c, x] = makeCanvas(192, 64); // 12 m by 4 m
-    x.drawImage(asphaltTex, 0, 0, 192, 64);
-    x.fillStyle = '#efeeea';
-    for (let i = 0; i < 8; i++) x.fillRect(8 + i * 23, 6, 13, 52);
-    return texMat(tex(c));
-  })();
-  const arrowMat = (function () {
-    const [c, x] = makeCanvas(96, 192); // 6 m by 12 m lane
-    x.drawImage(asphaltTex, 0, 0, 96, 192);
-    x.fillStyle = '#efeeea';
-    x.fillRect(44, 70, 8, 90); x.beginPath(); x.moveTo(30, 74); x.lineTo(48, 40); x.lineTo(66, 74); x.fill();
-    x.fillRect(52, 112, 22, 8); x.beginPath(); x.moveTo(70, 100); x.lineTo(88, 116); x.lineTo(70, 132); x.fill();
-    return texMat(tex(c));
-  })();
+  const asphaltMap = tex(asphaltTex, true);
+  const plainMat = new T.MeshStandardMaterial({ map: asphaltMap, normalMap: asphaltNormal, normalScale: new T.Vector2(0.42, 0.42), color: col('#ffffff'), roughness: 0.94, metalness: 0, envMapIntensity: 0.18 });
+  const plainMatLow = new T.MeshLambertMaterial({ map: asphaltMap, color: col('#e5e6e8') });
+  plainMat.userData.lowPeer = plainMatLow; plainMatLow.userData.pbrPeer = plainMat;
   const walkCanvas = (function () {
     const [c, x] = makeCanvas(512, 512), r = rng(43); // 3 m tile
     x.fillStyle = '#bdb8b1'; x.fillRect(0, 0, 512, 512);
@@ -289,7 +281,6 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   })();
   const walkNormal = heightToNormal(walkCanvas, 2.2);
   const walkMat = new T.MeshStandardMaterial({ map: tex(walkCanvas, true), normalMap: walkNormal, normalScale: new T.Vector2(0.6, 0.6), roughness: 0.86, metalness: 0 });
-  const curbMat = lam('#a39a91');
   function windowCanvas(glass) {
     const [c, x] = makeCanvas(128, 128);
     x.fillStyle = '#fff'; x.fillRect(0, 0, 128, 128);
@@ -323,13 +314,13 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function ribMat(h) { const k = 'r' + h; let m = mats.get(k); if (!m) { m = new T.MeshLambertMaterial({ color: col(h), map: RIB }); m.userData = { base: 'R', tint: col(h) }; mats.set(k, m); } return m; }
   // Shared city materials: every tinted box, light, window wall and ribbed wall in a block merges into one of these
   const SH = {
-    L: new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.76, metalness: 0.02, envMapIntensity: 0.55 }),
+    L: new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0, envMapIntensity: 0.18 }),
     G: new T.MeshBasicMaterial({ vertexColors: true }),
-    W0: new T.MeshStandardMaterial({ vertexColors: true, map: WIN[0], roughness: 0.52, metalness: 0.04, emissive: 0xffffff, emissiveMap: WIN_N[0], emissiveIntensity: 0.15 }),
-    W1: new T.MeshStandardMaterial({ vertexColors: true, map: WIN[1], roughness: 0.56, metalness: 0.03, emissive: 0xffffff, emissiveMap: WIN_N[1], emissiveIntensity: 0.15 }),
-    W2: new T.MeshStandardMaterial({ vertexColors: true, map: WIN[2], roughness: 0.48, metalness: 0.06, emissive: 0xffffff, emissiveMap: WIN_N[2], emissiveIntensity: 0.15 }),
-    W3: new T.MeshStandardMaterial({ vertexColors: true, map: WIN[1], roughness: 0.62, metalness: 0.02, emissive: 0xffffff, emissiveMap: WIN_N[1], emissiveIntensity: 0.15 }),
-    R: new T.MeshStandardMaterial({ vertexColors: true, map: RIB, roughness: 0.58, metalness: 0.28, envMapIntensity: 0.7 })
+    W0: new T.MeshStandardMaterial({ vertexColors: true, map: WIN[0], roughness: 0.88, metalness: 0, envMapIntensity: 0.18, emissive: 0xffffff, emissiveMap: WIN_N[0], emissiveIntensity: 0.15 }),
+    W1: new T.MeshStandardMaterial({ vertexColors: true, map: WIN[1], roughness: 0.9, metalness: 0, envMapIntensity: 0.16, emissive: 0xffffff, emissiveMap: WIN_N[1], emissiveIntensity: 0.15 }),
+    W2: new T.MeshStandardMaterial({ vertexColors: true, map: WIN[2], roughness: 0.86, metalness: 0, envMapIntensity: 0.2, emissive: 0xffffff, emissiveMap: WIN_N[2], emissiveIntensity: 0.15 }),
+    W3: new T.MeshStandardMaterial({ vertexColors: true, map: WIN[1], roughness: 0.92, metalness: 0, envMapIntensity: 0.14, emissive: 0xffffff, emissiveMap: WIN_N[1], emissiveIntensity: 0.15 }),
+    R: new T.MeshStandardMaterial({ vertexColors: true, map: RIB, roughness: 0.87, metalness: 0.04, envMapIntensity: 0.22 })
   };
   // Low uses matching legacy city shaders; Medium/High use the PBR set above. Props are merged with each city tile,
   // so this swap saves shader cost and preserves the original mobile draw-call budget.
@@ -342,6 +333,12 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     R: new T.MeshLambertMaterial({ vertexColors: true, map: RIB })
   };
   for (const k of ['L', 'W0', 'W1', 'W2', 'W3', 'R']) { SH[k].userData.lowPeer = SH_LOW[k]; SH_LOW[k].userData.pbrPeer = SH[k]; }
+  const baseAOCanvas = (function () { const [c, x] = makeCanvas(16, 64), g = x.createLinearGradient(0, 0, 0, 64); g.addColorStop(0, 'rgba(20,18,17,0)'); g.addColorStop(0.55, 'rgba(20,18,17,0.04)'); g.addColorStop(1, 'rgba(20,18,17,0.36)'); x.fillStyle = g; x.fillRect(0, 0, 16, 64); return c; })();
+  const BASE_AO = new T.MeshBasicMaterial({ map: tex(baseAOCanvas, true), transparent: true, depthWrite: false, opacity: 0.72, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1, fog: true });
+  BASE_AO.userData.noShadow = true;
+  const STORE_GLASS = new T.MeshStandardMaterial({ color: col('#344552'), roughness: 0.28, metalness: 0.02, envMapIntensity: 0.55, emissive: col('#182027'), emissiveIntensity: 0.08 });
+  const STORE_GLASS_LOW = new T.MeshLambertMaterial({ color: col('#344552'), emissive: col('#10171c'), emissiveIntensity: 0.08 });
+  STORE_GLASS.userData = { lowPeer: STORE_GLASS_LOW, noShadow: true }; STORE_GLASS_LOW.userData = { pbrPeer: STORE_GLASS, noShadow: true };
   // Sign atlas: shop signs, murals, taco sign and street-name plates all live on one texture
   const ATLAS_W = 4096, ATLAS_H = 4096;
   const [atlasC, ax] = makeCanvas(ATLAS_W, ATLAS_H);
@@ -594,7 +591,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     }, '#111014', 18)
   ];
   const adFor = (x, z) => ADS[hash(Math.round(x), Math.round(z)) % ADS.length];
-  const ART_TEX = tex(artC); ART_TEX.anisotropy = 8;
+  const ART_TEX = tex(artC);
   const ART_LIT = new T.MeshBasicMaterial({ map: ART_TEX, side: T.DoubleSide, color: new T.Color(0.92, 0.92, 0.92) });
   ART_LIT.userData = { noShadow: true };
   const ART_WALL = new T.MeshStandardMaterial({ map: ART_TEX, roughness: 0.7, metalness: 0, transparent: true, alphaTest: 0.08, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, emissive: 0xffffff, emissiveMap: ART_TEX, emissiveIntensity: 0.16 });
@@ -709,6 +706,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
         geo.computeBoundingSphere();
         const drawMat = lowCityMaterials && mat.userData && mat.userData.lowPeer ? mat.userData.lowPeer : mat;
         const mesh = new T.Mesh(geo, drawMat);
+        if (lowCityMaterials && (mat === TIRE_WEAR || mat === BASE_AO)) mesh.visible = false;
         if (!(mat.userData && mat.userData.noShadow)) { mesh.castShadow = true; }
         mesh.receiveShadow = true;
         geos.push(geo); g.add(mesh);
@@ -988,15 +986,22 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 
   const zebraTex = (function () { const [c, x] = makeCanvas(64, 64); x.drawImage(asphaltTex, 0, 0, 64, 64); x.fillStyle = '#efeeea'; x.fillRect(6, 0, 20, 64); x.fillRect(38, 0, 20, 64); return tex(c, true); })();
   const ZEBRA = texMat(zebraTex); ZEBRA.userData.noShadow = true;
-  const LINE_Y = lam('#f2c230'), LINE_W = lam('#ecebe6'), PAINT_RED = new T.MeshLambertMaterial({ color: col('#9c3b2f') }), PAINT_GREEN = new T.MeshLambertMaterial({ color: col('#2f7f4a') });
+  const wearCanvas = (function () { const [c, x] = makeCanvas(64, 256), r = rng(144); x.clearRect(0, 0, 64, 256); for (let y = 0; y < 256; y++) { const a = 0.18 + r() * 0.25; x.fillStyle = 'rgba(20,21,23,' + a + ')'; x.fillRect(8 + r() * 5, y, 40 + r() * 8, 1); } for (let k = 0; k < 9; k++) { x.fillStyle = 'rgba(0,0,0,' + (0.08 + r() * 0.12) + ')'; x.beginPath(); x.ellipse(32 + (r() - 0.5) * 10, r() * 256, 16 + r() * 12, 8 + r() * 30, 0, 0, Math.PI * 2); x.fill(); } return c; })();
+  const TIRE_WEAR = new T.MeshBasicMaterial({ map: tex(wearCanvas, true), transparent: true, opacity: 0.34, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1, fog: true });
+  TIRE_WEAR.userData.noShadow = true;
+  const LINE_Y = lam('#e8b92d'), LINE_W = lam('#e7e5df'), PAINT_RED = new T.MeshLambertMaterial({ color: col('#8f3c34') }), PAINT_GREEN = new T.MeshLambertMaterial({ color: col('#357653') });
   for (const m of [LINE_Y, LINE_W, PAINT_RED, PAINT_GREEN]) m.userData.noShadow = true;
   const OFFICE_T = ['#d6d9dd', '#bfc5cc', '#e9ebee', '#a9b4bf', '#c9c2b6', '#9eacbb'];
   const DOWN = [0, -1, 0];
-  const SIDEWALK = new T.MeshStandardMaterial({ map: walkMat.map, normalMap: walkNormal, normalScale: new T.Vector2(0.6, 0.6), color: col('#e2ddd6'), roughness: 0.87, metalness: 0 });
-  const CURB = lam('#b5aea5');
+  const SIDEWALK = new T.MeshStandardMaterial({ map: walkMat.map, normalMap: walkNormal, normalScale: new T.Vector2(0.5, 0.5), color: col('#d3cec6'), roughness: 0.94, metalness: 0, envMapIntensity: 0.12 });
+  const SIDEWALK_LOW = new T.MeshLambertMaterial({ map: walkMat.map, color: col('#c8c3bb') });
+  SIDEWALK.userData.lowPeer = SIDEWALK_LOW; SIDEWALK_LOW.userData.pbrPeer = SIDEWALK;
+  const CURB = new T.MeshStandardMaterial({ color: col('#aba59d'), roughness: 0.96, metalness: 0, envMapIntensity: 0.08 });
+  const CURB_LOW = new T.MeshLambertMaterial({ color: col('#aba59d') });
+  CURB.userData.lowPeer = CURB_LOW; CURB_LOW.userData.pbrPeer = CURB;
   const FWY_TOP = plainMat;
   const CONCRETE = lam('#bdb8ae'), CONCRETE_D = lam('#a19c93');
-  for (const m of [plainMat, ZEBRA, SIDEWALK, WATER, roadMat]) m.userData.noShadow = true;
+  for (const m of [plainMat, plainMatLow, ZEBRA, SIDEWALK, SIDEWALK_LOW, CURB, CURB_LOW, WATER]) m.userData.noShadow = true;
 
   // generic helpers kept from the first build (used by landmarks)
   function strip(b, mat, x1, z1, x2, z2, offd, half, y, ext0, ext1, uvTile, want) {
@@ -1028,16 +1033,26 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     for (const [a, c, d] of tris) emit(contour[a], contour[c], contour[d], 0);
   }
   function shrink(p, f) { let cx = 0, cz = 0; const n = p.length / 2; for (let k = 0; k < p.length; k += 2) { cx += p[k]; cz += p[k + 1]; } cx /= n; cz /= n; const q = []; for (let k = 0; k < p.length; k += 2) q.push(cx + (p[k] - cx) * f, cz + (p[k + 1] - cz) * f); return q; }
-  function prism(b, p, y0, y1, mat, trim, shop, rr, sign) {
-    const n = p.length / 2, sg = polyArea(p) > 0 ? 1 : -1; let u = 0;
+  const FACADE_W = 12, FACADE_H = 10.2; // source wall sheets contain four 3 m bays by three 3.4 m floors
+  function prism(b, p, y0, y1, mat, trim, shop, rr, sign, facadePhase) {
+    const n = p.length / 2, sg = polyArea(p) > 0 ? 1 : -1; let u = facadePhase || 0;
     for (let k = 0; k < n; k++) {
       const x1 = p[k * 2], z1 = p[k * 2 + 1], x2 = p[((k + 1) % n) * 2], z2 = p[((k + 1) % n) * 2 + 1], L = Math.hypot(x2 - x1, z2 - z1); if (L < 0.05) continue;
       const ox = (z2 - z1) / L * sg, oz = -(x2 - x1) / L * sg, mx = (x1 + x2) / 2, mz = (z1 + z2) / 2, ry = Math.atan2(ox, oz);
-      b.quad(mat, [x1, y0, z1], [x2, y0, z2], [x2, y1, z2], [x1, y1, z1], [u / 3, y0 / 3.4], [(u + L) / 3, y0 / 3.4], [(u + L) / 3, y1 / 3.4], [u / 3, y1 / 3.4], [ox, 0, oz]);
-      if (L > 1.2) { b.add(UNIT.box, trim, mx - ox * 0.12, y1 + 0.45, mz - oz * 0.12, L, 0.9, 0.25, 0, ry, 0); if (y1 - Math.max(0, y0) > 5 && y1 < 45) b.add(UNIT.box, trim, mx + ox * 0.15, y1 - 0.35, mz + oz * 0.15, L + 0.2, 0.3, 0.45, 0, ry, 0); }
+      b.quad(mat, [x1, y0, z1], [x2, y0, z2], [x2, y1, z2], [x1, y1, z1], [u / FACADE_W, y0 / FACADE_H], [(u + L) / FACADE_W, y0 / FACADE_H], [(u + L) / FACADE_W, y1 / FACADE_H], [u / FACADE_W, y1 / FACADE_H], [ox, 0, oz]);
+      // A soft contact shadow anchors the wall to the pavement even when SSAO is disabled.
+      if (y0 < 0.1 && y1 > 0.08) { const ay = Math.min(y1, 1.35), ao = 0.025; b.quad(BASE_AO, [x1 + ox * ao, 0.03, z1 + oz * ao], [x2 + ox * ao, 0.03, z2 + oz * ao], [x2 + ox * ao, ay, z2 + oz * ao], [x1 + ox * ao, ay, z1 + oz * ao], [u / 4, 0], [(u + L) / 4, 0], [(u + L) / 4, 1], [u / 4, 1], [ox, 0, oz]); }
+      if (L > 1.2) { b.add(UNIT.box, trim, mx - ox * 0.1, y1 + 0.23, mz - oz * 0.1, L, 0.46, 0.28, 0, ry, 0); if (y1 - Math.max(0, y0) > 5 && y1 < 45) b.add(UNIT.box, trim, mx + ox * 0.12, y1 - 0.22, mz + oz * 0.12, L + 0.2, 0.18, 0.34, 0, ry, 0); }
       if (k === shop && L > 4) {
         const ux = (x2 - x1) / L, uz = (z2 - z1) / L, i0 = 0.6, i1 = L - 0.6;
-        b.quad(lam('#27313c'), [x1 + ux * i0 + ox * 0.03, 0.3, z1 + uz * i0 + oz * 0.03], [x1 + ux * i1 + ox * 0.03, 0.3, z1 + uz * i1 + oz * 0.03], [x1 + ux * i1 + ox * 0.03, 2.6, z1 + uz * i1 + oz * 0.03], [x1 + ux * i0 + ox * 0.03, 2.6, z1 + uz * i0 + oz * 0.03], [0, 0], [1, 0], [1, 1], [0, 1], [ox, 0, oz]);
+        b.quad(STORE_GLASS, [x1 + ux * i0 + ox * 0.035, 0.38, z1 + uz * i0 + oz * 0.035], [x1 + ux * i1 + ox * 0.035, 0.38, z1 + uz * i1 + oz * 0.035], [x1 + ux * i1 + ox * 0.035, 2.62, z1 + uz * i1 + oz * 0.035], [x1 + ux * i0 + ox * 0.035, 2.62, z1 + uz * i0 + oz * 0.035], [0, 0], [Math.max(1, L / 2.5), 0], [Math.max(1, L / 2.5), 1], [0, 1], [ox, 0, oz]);
+        const bays = Math.max(2, Math.min(7, Math.round((i1 - i0) / 2.4))), frameMat = lam(rr() < 0.5 ? '#30343a' : '#7a746c');
+        for (let q = 0; q <= bays; q++) { const s = i0 + (i1 - i0) * q / bays, fx = x1 + ux * s + ox * 0.075, fz = z1 + uz * s + oz * 0.075; b.add(UNIT.box, frameMat, fx, 1.5, fz, 0.07, 2.25, 0.08, 0, ry, 0); }
+        b.add(UNIT.box, frameMat, mx + ox * 0.075, 0.38, mz + oz * 0.075, i1 - i0, 0.12, 0.1, 0, ry, 0);
+        b.add(UNIT.box, frameMat, mx + ox * 0.075, 2.62, mz + oz * 0.075, i1 - i0, 0.1, 0.1, 0, ry, 0);
+        const doorS = rr() < 0.5 ? i0 + (i1 - i0) / bays * 0.5 : i1 - (i1 - i0) / bays * 0.5, dx = x1 + ux * doorS + ox * 0.09, dz = z1 + uz * doorS + oz * 0.09;
+        b.add(UNIT.box, lam(rr() < 0.5 ? '#27343c' : '#65483a'), dx, 1.42, dz, Math.min(1.05, (i1 - i0) / bays * 0.7), 2.08, 0.08, 0, ry, 0);
+        b.add(UNIT.box, glow('#d7b36c'), dx + ux * 0.32, 1.38, dz + uz * 0.32, 0.045, 0.045, 0.08, 0, ry, 0);
         b.add(UNIT.box, lam(AWN[(rr() * AWN.length) | 0]), mx + ox * 0.7, 2.9, mz + oz * 0.7, Math.min(L * 0.85, 12), 0.16, 1.4, 0, ry, 0);
         const sg = sign || SHOP_SIGNS[(rr() * SHOP_SIGNS.length) | 0], sh = sg.ar ? 1.7 : 1.2, swd = sg.ar ? Math.min(L * 0.8, sh * sg.ar) : Math.min(L * 0.8, 7);
         b.add(UNIT.plane, sg, mx + ox * 0.06, 3.3 + sh / 2, mz + oz * 0.06, swd, sh, 1, 0, ry, 0);
@@ -1143,18 +1158,19 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   if (FK.sign_billboard) FK_SIGNS.sign_billboard = Object.assign(atlasImage(FK.sign_billboard, 768, 264), { ar: 355 / 122 });
   for (const n of ['sign_tacos', 'sign_kitty', 'sign_playordie']) if (FK_SIGNS[n]) { SHOP_SIGNS.push(FK_SIGNS[n], FK_SIGNS[n]); }
   ATLAS.map.needsUpdate = true;
-  // photo-based walls: brick, stucco, concrete office, Victorian siding (each tile = 4 bays x 3 floors) + corrugated metal;
+  // Photo-based walls: each sheet is authored as four 3 m bays by three 3.4 m floors.
+  // Mesh UVs carry that metre scale directly; texture.repeat stays 1 so scale is never compounded.
   // the drawn canvases stay as a fallback if these don't load
   {
     const names = ['wall_brick', 'wall_stucco', 'wall_office', 'wall_siding'];
     const ims = await Promise.all(names.flatMap(n => [loadImg('models/walls/' + n + '.jpg'), loadImg('models/walls/' + n + '_n.jpg')]).concat([loadImg('models/walls/wall_rib.jpg')]));
-    const mk = (im, rep, color) => { const t = new T.Texture(im); if (color) t.encoding = T.sRGBEncoding; t.wrapS = t.wrapT = T.RepeatWrapping; t.anisotropy = 8; if (rep) t.repeat.set(0.25, 1 / 3); t.needsUpdate = true; return t; };
+    const mk = (im, repeat, color) => { const t = finishTexture(new T.Texture(im), color, repeat); t.needsUpdate = true; return t; };
     names.forEach((n, i) => {
       const d = ims[i * 2], nn = ims[i * 2 + 1]; if (!d || !nn) return;
       const m = SH['W' + i], lm = SH_LOW['W' + i]; m.map = mk(d, true, true); m.normalMap = mk(nn, true, false); m.normalScale = new T.Vector2(0.55, 0.55); m.userData.wallNormal = n; m.needsUpdate = true;
       lm.map = m.map; lm.needsUpdate = true;
     });
-    if (ims[8]) { SH.R.map = mk(ims[8], false, true); SH_LOW.R.map = SH.R.map; SH.R.needsUpdate = SH_LOW.R.needsUpdate = true; }
+    if (ims[8]) { SH.R.map = mk(ims[8], true, true); SH_LOW.R.map = SH.R.map; SH.R.needsUpdate = SH_LOW.R.needsUpdate = true; }
   }
   // prop sprites: one atlas, one camera-facing shader, merged per tile
   const PA = { W: 2048, H: 2048, x: 0, y: 0, rowH: 0 };
@@ -1229,7 +1245,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function gasStation(b, a) {
     const p = a.pts, bb = bbox(p), cx = (bb[0] + bb[2]) / 2, cz = (bb[1] + bb[3]) / 2, y = H(cx, cz);
     const nw = nearestWay(cx, cz, 60); const ry = nw ? Math.atan2(nw.ux, nw.uz) : 0, fx = Math.sin(ry), fz = Math.cos(ry), rx = fz, rz = -fx;
-    polyFill(b, plainMat, p, 0.06, 8, false);
+    polyFill(b, plainMat, p, 0.06, ASPHALT_TILE, false);
     const cw = Math.min(24, (bb[2] - bb[0]) * 0.7), cd = Math.min(14, (bb[3] - bb[1]) * 0.6);
     // canopy: slab, lit underside, columns, brand fascia
     b.add(UNIT.box, lam('#e9e7e1'), cx, y + 5.3, cz, cw, 0.6, cd, 0, ry, 0);
@@ -1264,18 +1280,23 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     if (!t) return b.build();
     // areas first (under everything)
     polyFill.skipWater = true;
-    for (const ai of t.areas) { const a = RD.areas[ai]; if (a.k === 'fuel') { gasStation(b, a); continue; } const m = a.k === 'park' || a.k === 'grass' ? lam('#4f7a44') : a.k === 'pitch' ? lam('#4a8a4a') : a.k === 'wood' ? lam('#3c6a3a') : a.k === 'parking' ? plainMat : a.k === 'sand' ? lam('#c9b98f') : null; if (m) polyFill(b, m, a.pts, a.k === 'parking' ? 0.04 : 0.03, a.k === 'parking' ? 8 : 4); }
+    for (const ai of t.areas) { const a = RD.areas[ai]; if (a.k === 'fuel') { gasStation(b, a); continue; } const m = a.k === 'park' || a.k === 'grass' ? lam('#4f7a44') : a.k === 'pitch' ? lam('#4a8a4a') : a.k === 'wood' ? lam('#3c6a3a') : a.k === 'parking' ? plainMat : a.k === 'sand' ? lam('#c9b98f') : null; if (m) polyFill(b, m, a.pts, a.k === 'parking' ? 0.04 : 0.03, a.k === 'parking' ? ASPHALT_TILE : 4); }
     polyFill.skipWater = false;
     // road pieces
     for (const [wi, c0, c1] of t.pieces) {
       const w = RD.ways[wi], S = samples(w, c0, c1), yb = w.ele ? 7.6 : 0, yr = yb + Y_ROAD, yp = yb + Y_PAINT, L = w.L, len = c1 - c0;
-      ribbon(b, w.ele ? FWY_TOP : plainMat, S, -w.w / 2, w.w / 2, yr, 8, 8);
+      ribbon(b, w.ele ? FWY_TOP : plainMat, S, -w.w / 2, w.w / 2, yr, ASPHALT_TILE, ASPHALT_TILE);
       if (w.ele) {
         ribbon(b, CONCRETE_D, S, -w.w / 2, w.w / 2, yb - 0.9, 0, 0, DOWN);
         vribbon(b, CONCRETE, S, -w.w / 2, yb - 0.9, yb + 1.0, -1); vribbon(b, CONCRETE, S, w.w / 2, yb - 0.9, yb + 1.0, 1);
         vribbon(b, CONCRETE, S, -w.w / 2 + 0.3, yr, yb + 1.0, 1); vribbon(b, CONCRETE, S, w.w / 2 - 0.3, yr, yb + 1.0, -1);
       }
       const paintedCls = w.c !== 'service' && w.c !== 'living_street' && w.c !== 'pedestrian';
+      if (!w.ele && paintedCls) for (const lane of w.lanesF.concat(w.lanesB)) {
+        const centre = (lane[0] + lane[1]) / 2, half = (lane[1] - lane[0]) / 2;
+        if (half < 0.75) continue;
+        for (const d of [centre - Math.min(0.62, half * 0.42), centre + Math.min(0.62, half * 0.42)]) ribbon(b, TIRE_WEAR, S, d - 0.1, d + 0.1, yr + 0.006, 0, 2.5);
+      }
       if (paintedCls) {
         // centre line between directions
         if (w.lb && w.lf) { if (CENTRE_YELLOW.has(w.c)) { ribbon(b, LINE_Y, S, L.lf[0] - 0.2, L.lf[0] - 0.2 + LW, yp); ribbon(b, LINE_Y, S, L.lf[0] + 0.1, L.lf[0] + 0.1 + LW, yp); } else dashes(b, LINE_Y, w, c0, c1, L.lf[0] - 0.05, L.lf[0] + 0.05, 3, 6, yp, 1.5); }
@@ -1313,7 +1334,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
         const sww = w.sww[side > 0 ? 1 : 0]; if (!sww) continue;
         const d0 = side * (w.w / 2 + 0.15), d1 = side * (w.w / 2 + 0.15 + sww);
         ribbon(b, SIDEWALK, S, Math.min(d0, d1), Math.max(d0, d1), Y_WALK, 3, 3);
-        vribbon(b, CURB, S, side * w.w / 2, 0.02, Y_WALK, -side);
+        ribbon(b, CURB, S, Math.min(side * w.w / 2, d0), Math.max(side * w.w / 2, d0), Y_WALK + 0.002, 0, 0);
+        vribbon(b, CURB, S, side * w.w / 2, Y_ROAD, Y_WALK, -side);
         addRaised(ribbonPoly(S, Math.min(d0, d1), Math.max(d0, d1)), { dh: Y_WALK });
         // sidewalk clutter
         const rr = rng(wi * 131 + (c0 | 0));
@@ -1337,7 +1359,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
         for (const a of arms) { const px = a.out[1], pz = -a.out[0], ex = nd.x + a.out[0] * a.r, ez = nd.z + a.out[1] * a.r; pts.push([ex + px * a.w / 2, ez + pz * a.w / 2], [ex - px * a.w / 2, ez - pz * a.w / 2]); }
         pts.push([nd.x, nd.z]);
         const hull = (function (P) { P = P.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]); const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); const lo = [], up = []; for (const p of P) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); } for (const p of P.slice().reverse()) { while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); } return lo.slice(0, -1).concat(up.slice(0, -1)); })(pts);
-        if (hull.length >= 3) polyFill(b, plainMat, hull.flat(), Y_ROAD + 0.004, 8, true);
+        if (hull.length >= 3) polyFill(b, plainMat, hull.flat(), Y_ROAD + 0.004, ASPHALT_TILE, true);
         // sidewalk corners between consecutive arms
         for (let i = 0; i < arms.length; i++) {
           const A = arms[i], B = arms[(i + 1) % arms.length];
@@ -1354,7 +1376,18 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
           const arc = []; for (let s = 1; s < 5; s++) { const u = s / 5; arc.push([(1 - u) * (1 - u) * Ain[0] + 2 * (1 - u) * u * Cin[0] + u * u * Bin[0], (1 - u) * (1 - u) * Ain[1] + 2 * (1 - u) * u * Cin[1] + u * u * Bin[1]]); }
           const poly = [Ain, Aout, Cout, Bout, Bin, ...arc.slice().reverse()].flat();
           polyFill(b, SIDEWALK, poly, Y_WALK, 3, true); addRaised(poly, { dh: Y_WALK });
-          const curb = [Ain, ...arc, Bin]; for (let s = 0; s + 1 < curb.length; s++) { const p = curb[s], q = curb[s + 1], nx = (q[1] - p[1]), nz = -(q[0] - p[0]); b.quad(CURB, [p[0], 0.02, p[1]], [q[0], 0.02, q[1]], [q[0], Y_WALK, q[1]], [p[0], Y_WALK, p[1]], [0, 0], [1, 0], [1, 1], [0, 1], [-nx, 0, -nz]); }
+          const curb = [Ain, ...arc, Bin]; for (let s = 0; s + 1 < curb.length; s++) { const p = curb[s], q = curb[s + 1], nx = (q[1] - p[1]), nz = -(q[0] - p[0]); b.quad(CURB, [p[0], Y_ROAD, p[1]], [q[0], Y_ROAD, q[1]], [q[0], Y_WALK, q[1]], [p[0], Y_WALK, p[1]], [0, 0], [1, 0], [1, 1], [0, 1], [-nx, 0, -nz]); }
+        }
+      }
+      // Signalized and larger junctions get full approach crosswalks even when OSM omitted a crossing node.
+      if (nd.j && arms.length >= 2 && (f.hw === 'traffic_signals' || arms.some(a => MAJORC.has(RD.ways[a.wi].c)))) {
+        for (const a of arms) {
+          const w = RD.ways[a.wi]; if (w.ele || (!a.sww[0] && !a.sww[1])) continue;
+          const c = nodeChain(nd, a.wi); if (c === null) continue;
+          const cc = a.end ? c - a.r - 1.9 : c + a.r + 1.9;
+          if (cc < 1.5 || cc > w.len - 1.5) continue;
+          const CS = samples(w, cc - 1.3, cc + 1.3), hw = w.w / 2;
+          for (let i = 0; i + 1 < CS.length; i++) { const a0 = off(CS[i], -hw), a1 = off(CS[i], hw), b0 = off(CS[i + 1], -hw), b1 = off(CS[i + 1], hw); b.quad(ZEBRA, [a0[0], Y_PAINT, a0[1]], [a1[0], Y_PAINT, a1[1]], [b1[0], Y_PAINT, b1[1]], [b0[0], Y_PAINT, b0[1]], [0, 0], [w.w / 4, 0], [w.w / 4, 1], [0, 1], UP); }
         }
       }
       // crossings on a way (real node position)
@@ -1373,7 +1406,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
         const wi = nd.ws[0], w = RD.ways[wi], c = nodeChain(nd, wi);
         if (c !== null) {
           const hw = w.w / 2 - 0.3, S0 = samples(w, c - 1.6, c + 1.6), S1 = samples(w, c - 0.5, c + 0.5);
-          ribbon(b, plainMat, S0, -hw, hw, Y_ROAD + 0.04, 8, 8); ribbon(b, plainMat, S1, -hw, hw, Y_ROAD + 0.09, 8, 8);
+          ribbon(b, plainMat, S0, -hw, hw, Y_ROAD + 0.04, ASPHALT_TILE, ASPHALT_TILE); ribbon(b, plainMat, S1, -hw, hw, Y_ROAD + 0.09, ASPHALT_TILE, ASPHALT_TILE);
           for (let d = -hw + 0.6; d < hw - 0.6; d += 1.6) ribbon(b, LINE_W, samples(w, c - 1.2, c + 1.2), d, d + 0.3, Y_ROAD + 0.1);
           addRaised(ribbonPoly(S1, -hw, hw), { dh: 0.09 });
         }
@@ -1455,16 +1488,16 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       const col0 = B.bc && /^#/.test(B.bc) ? B.bc : null;
       const BRICK = '#f3eee8', mat = tall ? (rr() < 0.35 ? winMat(BRICK, 0) : winMat(col0 || OFFICE_T[(rr() * OFFICE_T.length) | 0], 2)) : B.shopEdge >= 0 ? (bi % 3 === 0 ? winMat(BRICK, 0) : winMat(col0 || SHOP[(rr() * SHOP.length) | 0], 1)) : typ === 'industrial' || typ === 'warehouse' ? ribMat(col0 || WARE[(rr() * WARE.length) | 0]) : winMat(col0 || PASTEL[(rr() * PASTEL.length) | 0], house ? 3 : 1);
       const trim = lam(tall ? '#8a8f97' : '#e6e0d6'), roofC = lam(B.rc && /^#/.test(B.rc) ? B.rc : tall ? '#7d8188' : '#8f8984');
-      const sign = B.name ? nameSign(B.name, bi) : null;
+      const sign = B.name ? nameSign(B.name, bi) : null, facadePhase = hash(B.id || bi, bi) % 4 * 3;
       if (!tall && h > 2.5 && h < 40 && p.length >= 6) graffitiWalls(b, p, B, bi);
       if (bi === FOX_BI || (!tall && h > 5 && h < 20 && B.shopEdge >= 0 && Math.abs(polyArea(p)) > 140 && rr() < 0.13)) {
         const n = p.length / 2, i = B.shopEdge >= 0 ? B.shopEdge : 0, x1 = p[i * 2], z1 = p[i * 2 + 1], x2 = p[((i + 1) % n) * 2], z2 = p[((i + 1) % n) * 2 + 1], L = Math.hypot(x2 - x1, z2 - z1) || 1, sg = polyArea(p) > 0 ? 1 : -1, ox = (z2 - z1) / L * sg, oz = -(x2 - x1) / L * sg;
         if (bi === FOX_BI && FK_SIGNS.sign_marquee) { const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2, ry = Math.atan2(ox, oz); b.add(UNIT.plane, FK_SIGNS.sign_marquee, mx + ox * 0.9, h * 0.55 + 2, mz + oz * 0.9, 7.6, 10, 1, 0, ry, 0); b.add(UNIT.plane, FK_SIGNS.sign_marquee, mx + ox * 0.85, h * 0.55 + 2, mz + oz * 0.85, 7.6, 10, 1, 0, ry + Math.PI, 0); b.add(UNIT.box, glow('#9bff6a'), mx + ox * 0.6, h * 0.55 + 7.2, mz + oz * 0.6, 8, 0.12, 0.12, 0, ry, 0); pool(b, poolMat('#9bff6a', 0.4), mx + ox * 5, mz + oz * 5, 9, 0.1); }
         else { const bw = Math.min(10, L * 0.9); billboard(b, B.cx - ox * 1.5, B.cz - oz * 1.5, h, Math.atan2(ox, oz), bw, bw / 2.91, true, adFor(B.cx, B.cz)); }
       }
-      if (h > 35 && p.length <= 24) { const h1 = h * (0.6 + rr() * 0.15), q = shrink(p, 0.76); prism(b, p, -1.5, h1, mat, trim, B.shopEdge, rr, sign); polyFill(b, roofC, p, h1, 4, true); prism(b, q, h1, h, mat, trim, -1, rr); polyFill(b, roofC, q, h, 4, true); roofJunk(b, q, h, rr, true); }
+      if (h > 35 && p.length <= 24) { const h1 = h * (0.6 + rr() * 0.15), q = shrink(p, 0.76); prism(b, p, -1.5, h1, mat, trim, B.shopEdge, rr, sign, facadePhase); polyFill(b, roofC, p, h1, 4, true); prism(b, q, h1, h, mat, trim, -1, rr, null, facadePhase); polyFill(b, roofC, q, h, 4, true); roofJunk(b, q, h, rr, true); }
       else {
-        prism(b, p, -1.5, h, mat, trim, B.shopEdge, rr, sign);
+        prism(b, p, -1.5, h, mat, trim, B.shopEdge, rr, sign, facadePhase);
         const pitched = B.roof === 'gabled' || B.roof === 'hipped' || B.roof === 'pyramidal' || (house && !B.roof && p.length <= 12 && Math.abs(polyArea(p)) < 260);
         if (pitched) { polyFill(b, roofC, p, h, 4, true); pitchedRoof(b, p, h, Math.min(3.2, 1.4 + Math.sqrt(Math.abs(polyArea(p))) * 0.18), lam(B.rc && /^#/.test(B.rc) ? B.rc : ['#5b4a52', '#7a4b3a', '#3e3a44', '#6b5a4a'][(rr() * 4) | 0])); }
         else { polyFill(b, roofC, p, h, 4, true); roofJunk(b, p, h, rr, tall); }
@@ -1476,7 +1509,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     for (const [x, z, dx, dz] of t.lights) { b.add(UNIT.taper, lam('#4a4d52'), x, 4, z, 0.13, 8, 0.13); b.add(UNIT.box, lam('#4a4d52'), x + dx * 1, 7.9, z + dz * 1, 0.12, 0.12, 2, 0, Math.atan2(dx, dz), 0); b.box(glow('#fff2c8'), x + dx * 1.9, 7.78, z + dz * 1.9, 0.35, 0.1, 0.35); pool(b, POOL_LAMP, x + dx * 2.4, z + dz * 2.4, 7.5, 0.085); }
     for (const [x, z, ry, ci] of t.cars) parkedCar(b, x, z, ry, CAR_COLORS[ci]);
     for (const k of t.neck) { const x = MAP.necklace[k], z = MAP.necklace[k + 1]; b.cyl(lam('#2f2b33'), x, 2.4, z, 0.07, 4.8); const k2 = (k + 2) % MAP.necklace.length, x2 = MAP.necklace[k2], z2 = MAP.necklace[k2 + 1]; if (Math.hypot(x2 - x, z2 - z) < 14) for (let q = 1; q <= 4; q++) { const s = q / 5; b.add(UNIT.sph, glow('#fff4cf'), x + (x2 - x) * s, 4.6 - Math.sin(Math.PI * s) * 0.9, z + (z2 - z) * s, 0.12, 0.12, 0.12); } }
-    for (const [fi, k] of t.fwy) { const [w, p] = MAP.freeways[fi], x1 = p[k], z1 = p[k + 1], x2 = p[k + 2], z2 = p[k + 3], L = Math.hypot(x2 - x1, z2 - z1); if (L < 0.5) continue; strip(b, FWY_TOP, x1, z1, x2, z2, 0, w / 2, 7.6, 0.6, 0.6, 8); strip(b, CONCRETE_D, x1, z1, x2, z2, 0, w / 2, 6.7, 0.6, 0.6, 0, DOWN); for (const s of [1, -1]) { vstrip(b, CONCRETE, x1, z1, x2, z2, s * w / 2, 6.7, 8.6, s); vstrip(b, CONCRETE, x1, z1, x2, z2, s * (w / 2 - 0.3), 7.6, 8.6, -s); } const ux = (x2 - x1) / L, uz = (z2 - z1) / L; for (let s = 2; s + 4 < L; s += 12) for (const o of [w / 6, -w / 6]) strip(b, LINE_W, x1 + ux * s, z1 + uz * s, x1 + ux * (s + 4), z1 + uz * (s + 4), o, 0.08, 7.62, 0, 0); }
+    for (const [fi, k] of t.fwy) { const [w, p] = MAP.freeways[fi], x1 = p[k], z1 = p[k + 1], x2 = p[k + 2], z2 = p[k + 3], L = Math.hypot(x2 - x1, z2 - z1); if (L < 0.5) continue; strip(b, FWY_TOP, x1, z1, x2, z2, 0, w / 2, 7.6, 0.6, 0.6, ASPHALT_TILE); strip(b, CONCRETE_D, x1, z1, x2, z2, 0, w / 2, 6.7, 0.6, 0.6, 0, DOWN); for (const s of [1, -1]) { vstrip(b, CONCRETE, x1, z1, x2, z2, s * w / 2, 6.7, 8.6, s); vstrip(b, CONCRETE, x1, z1, x2, z2, s * (w / 2 - 0.3), 7.6, 8.6, -s); } const ux = (x2 - x1) / L, uz = (z2 - z1) / L; for (let s = 2; s + 4 < L; s += 12) for (const o of [w / 6, -w / 6]) strip(b, LINE_W, x1 + ux * s, z1 + uz * s, x1 + ux * (s + 4), z1 + uz * (s + 4), o, 0.08, 7.62, 0, 0); }
     for (const [x, z, ux, uz] of t.fbb) { const ry = Math.atan2(ux, uz); billboard(b, x, z, 11.5, ry, 11, 11 / 2.91, false, adFor(x, z), ADS[(hash(Math.round(z), Math.round(x)) + 3) % ADS.length]); }
     for (const [x, z, ux, uz, w] of t.fcol) { const ry = Math.atan2(ux, uz); for (const o of (w > 14 ? [w / 4, -w / 4] : [0])) { b.add(UNIT.box, CONCRETE, x - uz * o, 3.0, z + ux * o, 1.4, 6.0, 1.4, 0, ry, 0); columnTag(b, x - uz * o, z + ux * o, ry, 0.7, 1.7); } b.add(UNIT.box, CONCRETE_D, x, 6.3, z, w * 0.9, 0.8, 1.8, 0, ry, 0); }
     for (const k of t.bart) { const x1 = BP[k], z1 = BP[k + 1], x2 = BP[k + 2], z2 = BP[k + 3]; strip(b, lam('#c4bdb1'), x1, z1, x2, z2, 0, 4.3, 9.4, 0.5, 0.5, 0); strip(b, CONCRETE_D, x1, z1, x2, z2, 0, 4.3, 8.3, 0.5, 0.5, 0, DOWN); for (const s of [1, -1]) { vstrip(b, CONCRETE, x1, z1, x2, z2, s * 4.3, 8.3, 10.3, s); vstrip(b, CONCRETE, x1, z1, x2, z2, s * 4.0, 9.4, 10.3, -s); } for (const o of [-2.6, -1.2, 1.2, 2.6]) strip(b, lam('#55504a'), x1, z1, x2, z2, o, 0.05, 9.5, 0.5, 0.5, 0); }
@@ -1528,9 +1561,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     }
     return c;
   })();
-  const TILES = new T.MeshStandardMaterial({ map: tex(tileCanvas, true), normalMap: heightToNormal(tileCanvas, 2.5), normalScale: new T.Vector2(0.7, 0.7), roughness: 0.68, metalness: 0.02 });
+  const TILES = new T.MeshStandardMaterial({ map: tex(tileCanvas, true), normalMap: heightToNormal(tileCanvas, 2.5), normalScale: new T.Vector2(0.7, 0.7), roughness: 0.84, metalness: 0 });
   const plankCanvas = (function () { const [c, x] = makeCanvas(128, 256), r = rng(79); x.fillStyle = '#8f9ca3'; x.fillRect(0, 0, 128, 256); for (let k = 0; k < 8; k++) { x.fillStyle = 'rgba(0,0,0,' + (0.18 + r() * 0.1) + ')'; x.fillRect(0, k * 32, 128, 3); x.fillStyle = 'rgba(255,255,255,' + (0.05 + r() * 0.06) + ')'; x.fillRect(0, k * 32 + 3, 128, 2); } return c; })();
-  const PLANKS = new T.MeshStandardMaterial({ map: tex(plankCanvas, true), normalMap: heightToNormal(plankCanvas, 2), normalScale: new T.Vector2(0.5, 0.5), roughness: 0.62, metalness: 0 });
+  const PLANKS = new T.MeshStandardMaterial({ map: tex(plankCanvas, true), normalMap: heightToNormal(plankCanvas, 2), normalScale: new T.Vector2(0.5, 0.5), roughness: 0.88, metalness: 0 });
   const HOUSE_GLASS = new T.MeshStandardMaterial({ color: col('#0c1218'), roughness: 0.08, metalness: 0.7, envMapIntensity: 1.3, emissive: col('#ffd9a0'), emissiveIntensity: 0.16 });
   const TRIM = lam('#ece9e1'), PLINTH = lam('#c6c1b8'), MEMBRANE = lam('#4a4845'), RAIL = lam('#eeeeea'), DECK = lam('#e4ded4');
   const WATER_LV = (function () { const hs = []; for (const w of MAP.water) if (w.length > 300) for (let k = 0; k < w.length; k += 2) hs.push(H(w[k], w[k + 1])); if (!hs.length) return 0; hs.sort((a, b) => a - b); return hs[Math.floor(hs.length * 0.2)] - 0.3; })();
@@ -2862,9 +2895,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   const fxaa = new T.ShaderPass(T.FXAAShader), gamma = new T.ShaderPass(T.GammaCorrectionShader);
   composer.addPass(renderPass); if (!LOWMEM) composer.addPass(ssao); composer.addPass(bloom); composer.addPass(fxaa); composer.addPass(gamma);
   const QL = {
-    low: { ratio: Math.min(window.devicePixelRatio || 1, 1), shadow: 0, soft: false, post: false, ao: false, env: false, sunset: ['#64556b', 42, 165], night: ['#10172a', 34, 145] },
-    medium: { ratio: Math.min(window.devicePixelRatio || 1, 1.25), shadow: 1024, soft: false, post: true, ao: false, env: true, sunset: ['#5a4c66', 55, 215], night: ['#0c1428', 46, 190] },
-    high: { ratio: Math.min(window.devicePixelRatio || 1, 2), shadow: 2048, soft: true, post: true, ao: true, env: true, sunset: ['#51435f', 70, 265], night: ['#091225', 58, 235] }
+    low: { ratio: Math.min(window.devicePixelRatio || 1, 1), shadow: 0, soft: false, post: false, ao: false, env: false, aniso: Math.min(2, maxAnisotropy), sunset: ['#737078', 42, 165], night: ['#151a27', 34, 145] },
+    medium: { ratio: Math.min(window.devicePixelRatio || 1, 1.25), shadow: 1024, soft: false, post: true, ao: false, env: true, aniso: Math.min(4, maxAnisotropy), sunset: ['#696870', 55, 215], night: ['#111725', 46, 190] },
+    high: { ratio: Math.min(window.devicePixelRatio || 1, 2), shadow: 2048, soft: true, post: true, ao: true, env: true, aniso: maxAnisotropy, sunset: ['#60636b', 70, 265], night: ['#0d1422', 58, 235] }
   };
   const autoCeiling = LOWMEM ? ((navigator.deviceMemory || 4) <= 2 ? 'low' : 'medium') : 'high';
   let qualityPreference = 'auto', quality = autoCeiling, nightMode = false;
@@ -2878,13 +2911,13 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     skyMat.map = SKY[mode]; skyMat.needsUpdate = true;
     scene.fog.color.copy(col(f[0])); scene.fog.near = f[1]; scene.fog.far = f[2]; scene.background.copy(col(f[0]));
     scene.environment = L.env ? ENV[mode] : null;
-    hemi.color.copy(col(nightMode ? '#6376ad' : '#9bb0d0')); hemi.groundColor.copy(col(nightMode ? '#181323' : '#513039')); hemi.intensity = nightMode ? 0.48 : 0.78;
+    hemi.color.copy(col(nightMode ? '#6376a5' : '#a3b3c8')); hemi.groundColor.copy(col(nightMode ? '#191923' : '#4a403a')); hemi.intensity = nightMode ? 0.48 : 0.78;
     sun.color.copy(col(nightMode ? '#8095d1' : '#ffb36f')); sun.intensity = nightMode ? 0.34 : 1.05;
-    renderer.toneMappingExposure = nightMode ? 1.05 : 1.12;
+    renderer.toneMappingExposure = nightMode ? 1.02 : 1.1;
     for (const m of [SH.W0, SH.W1, SH.W2, SH.W3, SH_LOW.W0, SH_LOW.W1, SH_LOW.W2, SH_LOW.W3]) m.emissiveIntensity = nightMode ? 1.15 : 0.12;
     ART_WALL.emissiveIntensity = nightMode ? 0.65 : 0.12; HOUSE_GLASS.emissiveIntensity = nightMode ? 0.48 : 0.1;
     SH.G.color.setRGB(nightMode ? 1.45 : 0.72, nightMode ? 1.45 : 0.72, nightMode ? 1.45 : 0.72);
-    ATLAS.color.setRGB(nightMode ? 1.3 : 0.92, nightMode ? 1.3 : 0.92, nightMode ? 1.3 : 0.92); ART_LIT.color.setRGB(nightMode ? 1.25 : 0.9, nightMode ? 1.25 : 0.9, nightMode ? 1.25 : 0.9);
+    ATLAS.color.setRGB(nightMode ? 1.3 : 1.0, nightMode ? 1.3 : 1.0, nightMode ? 1.3 : 1.0); ART_LIT.color.setRGB(nightMode ? 1.25 : 0.98, nightMode ? 1.25 : 0.98, nightMode ? 1.25 : 0.98);
     for (const m of glowPools) m.opacity = m.userData.baseOpacity * (nightMode ? 1 : 0.22);
     bloom.strength = nightMode ? 0.82 : 0.32; bloom.radius = nightMode ? 0.58 : 0.35; bloom.enabled = L.post && nightMode;
     const b = document.getElementById('nightBtn'); b.textContent = nightMode ? 'Night' : 'Sunset'; b.setAttribute('aria-pressed', String(nightMode));
@@ -2893,12 +2926,15 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function applyQuality(q) {
     quality = q; const L = QL[q];
     lowCityMaterials = q === 'low';
+    textureAnisotropy = L.aniso;
+    for (const t of managedTextures) { if (t.anisotropy !== textureAnisotropy) { t.anisotropy = textureAnisotropy; t.needsUpdate = true; } }
     renderer.setPixelRatio(L.ratio);
     renderer.shadowMap.type = L.soft ? T.PCFSoftShadowMap : T.PCFShadowMap;
     renderer.shadowMap.enabled = L.shadow > 0; sun.castShadow = L.shadow > 0;
     if (L.shadow && sun.shadow.mapSize.x !== L.shadow) { sun.shadow.mapSize.set(L.shadow, L.shadow); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
     scene.traverse(o => {
       if (!o.material) return;
+      if (o.material === TIRE_WEAR || o.material === BASE_AO) o.visible = q !== 'low';
       const swap = m => lowCityMaterials && m.userData && m.userData.lowPeer ? m.userData.lowPeer : !lowCityMaterials && m.userData && m.userData.pbrPeer ? m.userData.pbrPeer : m;
       o.material = Array.isArray(o.material) ? o.material.map(swap) : swap(o.material); if (Array.isArray(o.material)) o.material.forEach(m => { m.needsUpdate = true; }); else o.material.needsUpdate = true;
     });
