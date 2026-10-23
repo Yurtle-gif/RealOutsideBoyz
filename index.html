@@ -104,7 +104,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 <div id="panel" class="panel">
   <div class="card">
     <h1 id="ptitle">Real Outside <span>Boyz</span></h1>
-    <p id="psub">Real Oakland streets with hills, the 880 and BART overhead. You start in the Sailboat House lot on Lake Merritt. Press F to switch rides: dirt bike, Grom, Banshee quad and car. Turn Online on to ride with others; share a crew code to ride with just your friends.</p>
+    <p id="psub">Real Oakland streets with hills, the 880 and BART overhead. You start in the Sailboat House lot on Lake Merritt. Press F to switch rides: two dirt bikes, Grom, Banshee quad and car. Turn Online on to ride with others; share a crew code to ride with just your friends.</p>
     <div id="keys" class="keys">
       <div><kbd>W</kbd><span>Gas</span></div>
       <div><kbd>S</kbd><kbd>E</kbd><span>Brake</span></div>
@@ -2376,27 +2376,44 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     for (const [lx, lz] of CAR_PTS) { const b = blocked(x + lx * c + lz * s, z - lx * s + lz * c, -0.6); if (b === 'b' || (b === 'w' && raisedAt(x, z) === null)) return b; }
     return null;
   }
-  const RIDES = ['bike', 'grom', 'quad', 'car'], RIDE_LABEL = { bike: 'Bike', grom: 'Grom', quad: 'Quad', car: 'Car' };
-  const nextRide = m => { let n = RIDES[(RIDES.indexOf(m) + 1) % RIDES.length]; if (n === 'quad' && quad.failed) n = RIDES[(RIDES.indexOf(n) + 1) % RIDES.length]; return n; };
+  const RIDES = ['bike', 'bike2', 'grom', 'quad', 'car'], RIDE_LABEL = { bike: 'Bike', bike2: 'Bike 2', grom: 'Grom', quad: 'Quad', car: 'Car' };
+  const curRide = () => S.mode === 'bike' && S.bv ? 'bike2' : S.mode;
+  const nextRide = m => { let n = RIDES[(RIDES.indexOf(m) + 1) % RIDES.length]; for (let i = 0; i < 2; i++) if ((n === 'quad' && quad.failed) || (n === 'bike2' && bike2.failed)) n = RIDES[(RIDES.indexOf(n) + 1) % RIDES.length]; return n; };
+  // second dirt bike: the blue bike from its own model, ridden with the same bike physics
+  const bike2 = { root: null, dw: null, R0: 0.33, seat: [0, 0.6, -0.36], ok: false, failed: false };
+  let bike2Load = null;
+  function ensureBike2() { return bike2Load || (bike2Load = (async () => {
+    try {
+      const g = await load('models/dirtbike2.gltf.json'), m = g.scene; let wr = null, wf = null;
+      m.traverse(o => { if (o.isMesh) { o.castShadow = true; if (o.material) { o.material.envMap = envRT.texture; o.material.envMapIntensity = 1.0; o.material.needsUpdate = true; } } if (o.name === 'wheel_R') wr = o; if (o.name === 'wheel_F') wf = o; });
+      // model faces +z with the rear axle at (0, 0.33, -0.612): face -z and sit that axle on the rig's pivot
+      m.rotation.y = Math.PI; m.position.set(0, -0.33, -0.612);
+      const holder = new T.Group(); holder.add(m); holder.visible = false; bike.pitch.add(holder);
+      if (wf) wf.rotation.order = 'YXZ';
+      bike2.root = holder; bike2.dw = { rear: wr, front: wf, R: 0.33 }; bike2.ok = true;
+      if (S.mode === 'bike' && S.bv) { setRideVisuals(); seatRider(); }
+    } catch (e) { bike2.failed = true; }
+  })()); }
   function rideNote(t) { trickToast(t, ''); TR.hideAt = S.t + 2.2; }
   function setRideVisuals() {
-    const m = S.mode;
+    const m = S.mode, b2 = m === 'bike' && !!S.bv && bike2.ok;
     car.root.visible = m === 'car'; bike.root.visible = m !== 'car';
-    if (bike.model) bike.model.visible = m === 'bike';
+    if (bike.model) bike.model.visible = m === 'bike' && !b2; if (bike2.root) bike2.root.visible = b2;
     if (bike.hl) { bike.hl.visible = m === 'bike'; bike.tl.visible = m === 'bike'; }
     if (bike.tp) bike.tp.intensity = m === 'bike' ? 0.5 : 0;
     grom.root.visible = m === 'grom'; if (quad.root) quad.root.visible = m === 'quad';
-    bike.pitch.position.y = m === 'grom' ? grom.R : m === 'quad' ? quad.R : (bike.R0 || R);
-    if (m === 'grom') SEAT.set(...(grom.seat || [0, 0.6, -0.26])); else if (m === 'quad') SEAT.set(0, 0.613 * QS - 0.04, -0.32 * QS); else SEAT.set(...(bike.seat || [0, 0.66, -0.58]));
-    const sb = document.getElementById('swapBtn'); if (sb) sb.textContent = RIDE_LABEL[nextRide(m)];
+    bike.pitch.position.y = m === 'grom' ? grom.R : m === 'quad' ? quad.R : b2 ? bike2.R0 : (bike.R0 || R);
+    if (m === 'grom') SEAT.set(...(grom.seat || [0, 0.6, -0.26])); else if (m === 'quad') SEAT.set(0, 0.613 * QS - 0.04, -0.32 * QS); else if (b2) SEAT.set(...bike2.seat); else SEAT.set(...(bike.seat || [0, 0.66, -0.58]));
+    const sb = document.getElementById('swapBtn'); if (sb) sb.textContent = RIDE_LABEL[nextRide(curRide())];
   }
   function toggleVehicle() {
     if (S.state !== 'ride') return;
-    const next = nextRide(S.mode), toCar = next === 'car';
+    const next = nextRide(curRide()), toCar = next === 'car';
+    if (next === 'bike2' && !bike2.ok) { const from = curRide(); rideNote('Loading bike…'); ensureBike2().then(() => { if (bike2.ok && curRide() === from && S.state === 'ride') toggleVehicle(); else if (!bike2.ok) { rideNote("Bike 2 didn't load"); setRideVisuals(); } }); return; }
     if (next === 'quad' && !quad.ok) { const from = S.mode; rideNote('Loading Banshee…'); ensureQuad().then(() => { if (quad.ok && S.mode === from && S.state === 'ride') toggleVehicle(); else if (!quad.ok) rideNote("Banshee didn't load"); }); return; }
     if (next === 'grom') ensureGrom(); if (toCar) ensureG35();
     if (toCar && carBlocked(S.x, S.z, S.yaw)) { const nr = nearestRoad(S.x, S.z); if (nr) { S.x = nr.qx; S.z = nr.qz; S.yaw = Math.atan2(-nr.ux, -nr.uz); } }
-    S.mode = next;
+    S.mode = next === 'bike2' ? 'bike' : next; S.bv = next === 'bike2' ? 1 : 0;
     const f = forward(S.yaw); S.vx = f.x * S.v; S.vz = f.z * S.v; S.vr = 0;
     S.th = 0; S.om = 0; S.st = 0; S.thr = 0; popQueued = false;
     if (!toCar) { S.v = Math.max(0, S.v); S.gear = 1; }
@@ -2770,7 +2787,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       const comp = clamp(S.thr * 0.02 - (inp.brake ? 0.04 : 0), -0.04, 0.02);
       if (bike.parts.ForkLower && bike.parts.ForkLower.userData.rest) bike.parts.ForkLower.position.y = bike.parts.ForkLower.userData.rest.y + comp;
     }
-    if (S.mode === 'bike' && bike.dw && bike.dw.rear) { const ds = S.v / bike.dw.R * dt; bike.dw.rear.rotation.x += ds; if (bike.dw.front) { bike.dw.front.rotation.x += ds; bike.dw.front.rotation.y = -S.st * 0.35; } }
+    { const dw = S.bv ? bike2.dw : bike.dw; if (S.mode === 'bike' && dw && dw.rear) { const ds = S.v / dw.R * dt; dw.rear.rotation.x += ds; if (dw.front) { dw.front.rotation.x += ds; dw.front.rotation.y = -S.st * 0.35; } } }
     if (S.mode === 'quad' && quad.ok) { const qsp = S.v / quad.R * dt; for (const w of quad.wheels) w.rotation.x += qsp; for (const w of quad.front) w.rotation.y = -S.st * 0.45; }
     if (S.mode === 'grom') { const gsp = S.v / grom.R * dt * (grom.spin || 1); grom.rear.rotation.x -= gsp; grom.front.rotation.x -= gsp; grom.steer.rotation.y = -S.st * 0.35; }
     if (S.state === 'crash') bike.lean.rotation.z = S.crash.roll * S.crash.rollDir;
@@ -2955,7 +2972,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   // my state, ~12 times a second while riding
   function netSnap() {
     const inCar = S.mode === 'car', rt = inCar ? car.root : bike.root, rd = bike.rider;
-    const d = { n: NET.name, m: NET_MODES.indexOf(S.mode), p: [r3(rt.position.x), r3(rt.position.y), r3(rt.position.z)], r: [r3(rt.rotation.x), r3(rt.rotation.y)], l: r3(bike.lean.rotation.z), th: r3(bike.pitch.rotation.x), v: r3(S.v), st: r3(S.st), q: NET.seq++ };
+    const d = { n: NET.name, m: NET_MODES.indexOf(S.mode), bv: S.bv ? 1 : 0, p: [r3(rt.position.x), r3(rt.position.y), r3(rt.position.z)], r: [r3(rt.rotation.x), r3(rt.rotation.y)], l: r3(bike.lean.rotation.z), th: r3(bike.pitch.rotation.x), v: r3(S.v), st: r3(S.st), q: NET.seq++ };
     if (!inCar && rd) {
       if (rd.parent === bike.pitch) { d.rp = [r3(rd.position.x), r3(rd.position.y), r3(rd.position.z)]; d.rw = 0; }
       else { rd.getWorldPosition(tmpN); rd.getWorldQuaternion(tmpQ); d.rp = [r3(tmpN.x), r3(tmpN.y), r3(tmpN.z)]; d.rq = [r3(tmpQ.x), r3(tmpQ.y), r3(tmpQ.z), r3(tmpQ.w)]; d.rw = 1; }
@@ -2968,11 +2985,12 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function pathTo(root, o) { const p = []; while (o && o !== root) { if (!o.parent) return null; p.unshift(o.parent.children.indexOf(o)); o = o.parent; } return o === root ? p : null; }
   function follow(root, p) { let o = root; for (const i of p || []) o = o && o.children[i]; return o || null; }
   function cloneRide(m, P) {
-    const src = m === 'bike' ? bike.model : m === 'grom' ? grom.root : m === 'quad' ? quad.root : car.body; if (!src) return null;
+    const src = m === 'bike2' ? bike2.root : m === 'bike' ? bike.model : m === 'grom' ? grom.root : m === 'quad' ? quad.root : car.body; if (!src) return null;
     const c = src.clone(); c.visible = true;
     let spin = [], steer = [];
     const map = arr => arr.filter(Boolean).map(o => follow(c, pathTo(src, o))).filter(Boolean);
     if (m === 'bike' && bike.dw) { spin = map([bike.dw.rear, bike.dw.front]); steer = map([bike.dw.front]); }
+    if (m === 'bike2' && bike2.dw) { spin = map([bike2.dw.rear, bike2.dw.front]); steer = map([bike2.dw.front]); }
     if (m === 'grom') { spin = map([grom.rear, grom.front]); steer = map([grom.steer]); }
     if (m === 'quad') { spin = map(quad.wheels); steer = map(quad.front); }
     if (m === 'car') { spin = map(car.spin); steer = map(car.steer); }
@@ -3003,10 +3021,10 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     P.d = d; P.seen = performance.now();
     const nm = String(d.n || 'Rider').slice(0, 14);
     if (nm !== P.name) { P.name = nm; if (P.tag) P.root.remove(P.tag); P.tag = nameTag(nm); P.root.add(P.tag); }
-    const m = NET_MODES[d.m] || 'bike';
+    let m = NET_MODES[d.m] || 'bike'; if (m === 'bike' && d.bv) m = 'bike2';
     if (m !== P.mode) {
       P.mode = m;
-      if (m === 'quad' && !quad.ok) ensureQuad(); if (m === 'grom') ensureGrom(); if (m === 'car') ensureG35();
+      if (m === 'quad' && !quad.ok) ensureQuad(); if (m === 'bike2') ensureBike2(); if (m === 'grom') ensureGrom(); if (m === 'car') ensureG35();
       for (const k in P.rides) P.rides[k].obj.visible = false;
     }
   }
@@ -3031,9 +3049,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       tmpN.set(d.p[0] + f.x * Math.min(lead, 2), d.p[1], d.p[2] + f.z * Math.min(lead, 2));
       if (!P.init) { P.root.position.copy(tmpN); P.root.rotation.set(d.r[0], d.r[1], 0); P.lean.rotation.z = d.l; P.pitch.rotation.x = d.th; P.init = true; }
       else { P.root.position.lerp(tmpN, a); P.root.rotation.x += (d.r[0] - P.root.rotation.x) * a; P.root.rotation.y = angLerp(P.root.rotation.y, d.r[1], a); P.lean.rotation.z += ((inCar ? 0 : d.l) - P.lean.rotation.z) * a; P.pitch.rotation.x += ((inCar ? 0 : d.th) - P.pitch.rotation.x) * a; }
-      P.pitch.position.y = inCar ? 0 : m === 'grom' ? grom.R : m === 'quad' ? quad.R : (bike.R0 || R);
+      P.pitch.position.y = inCar ? 0 : m === 'grom' ? grom.R : m === 'quad' ? quad.R : m === 'bike2' ? bike2.R0 : (bike.R0 || R);
       if (R0) {
-        const rad = m === 'bike' ? (bike.dw ? bike.dw.R : R) : m === 'grom' ? grom.R : m === 'quad' ? quad.R : (car.R || CR), sg = m === 'grom' ? -(grom.spin || 1) : m === 'car' ? -1 : 1, sp = d.v / rad * dt * sg;
+        const rad = m === 'bike2' ? bike2.R0 : m === 'bike' ? (bike.dw ? bike.dw.R : R) : m === 'grom' ? grom.R : m === 'quad' ? quad.R : (car.R || CR), sg = m === 'grom' ? -(grom.spin || 1) : m === 'car' ? -1 : 1, sp = d.v / rad * dt * sg;
         for (const w of R0.spin) w.rotation.x += sp;
         for (const w of R0.steer) w.rotation.y = -d.st * (m === 'quad' ? 0.45 : m === 'car' ? 0.55 : 0.35);
       }
