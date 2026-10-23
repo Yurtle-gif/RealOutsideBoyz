@@ -57,6 +57,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 .go:disabled{opacity:.6;cursor:wait}
 #status{font-size:14px;color:rgba(255,255,255,.75);min-height:1.2em}
 .qrow{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;font-size:13px;color:rgba(255,255,255,.7)}
+.vol label{display:flex;align-items:center;gap:4px}.vol input{width:84px;accent-color:var(--gold)}
 .qrow .lbl{margin-right:4px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;font-size:12px}
 .qbtn{appearance:none;border:1px solid var(--line);background:rgba(255,255,255,.08);color:#fff;font-family:var(--round);font-weight:700;font-size:13px;padding:5px 11px;border-radius:999px;cursor:pointer}
 .qbtn[aria-pressed="true"]{background:var(--gold);color:#1b1408;border-color:var(--gold)}
@@ -117,6 +118,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     </div>
     <div class="qrow" role="group" aria-label="Graphics quality"><span class="lbl">Quality</span><button class="qbtn" type="button" data-q="auto">Auto</button><button class="qbtn" type="button" data-q="low">Low</button><button class="qbtn" type="button" data-q="medium">Medium</button><button class="qbtn" type="button" data-q="high">High</button></div>
     <div class="qrow" role="group" aria-label="Lighting mode"><span class="lbl">Lighting</span><button id="nightBtn" class="modebtn" type="button" aria-pressed="false">Sunset</button></div>
+    <div class="qrow vol" role="group" aria-label="Sound"><span class="lbl">Sound</span><label>Master <input type="range" min="0" max="100" value="80" data-k="master"></label><label>SFX <input type="range" min="0" max="100" value="90" data-k="sfx"></label><label>Ambience <input type="range" min="0" max="100" value="70" data-k="amb"></label></div>
     <div id="g3dRow" class="qrow" role="group" aria-label="World" hidden><span class="lbl">World</span><button id="g3dBtn" class="modebtn" type="button" aria-pressed="false">Real Oakland (Google 3D)</button></div>
     <div id="status">Loading Oakland…</div>
     <p class="credit">Map data © OpenStreetMap contributors</p>
@@ -124,6 +126,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   </div>
 </div>
 
+<script src="audio.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
@@ -2477,35 +2480,27 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   let smokeIdx = 0;
   function emitSmoke(p) { const s = smoke[smokeIdx++ % smoke.length]; s.sp.position.copy(p); s.sp.visible = true; s.life = 1; s.vy = rand(0.4, 1); s.size = rand(0.5, 0.9); }
 
-  // ---------- audio
+  // ---------- audio (procedural Web Audio in audio.js; starts on the Ride/Resume tap for iPhone Safari)
   let audio = null;
+  const _camFwd = new T.Vector3();
+  const AUD_PARTY = (POIS.pois || []).find(p => p.party) || null, AUD_TRUCKS = (POIS.pois || []).filter(p => p.k === 'truck');
   function startAudio() {
-    if (audio) { if (audio.ac.state === 'suspended') audio.ac.resume(); return; }
-    try {
-      const ac = new (window.AudioContext || window.webkitAudioContext)();
-      const o1 = ac.createOscillator(), o2 = ac.createOscillator(), f = ac.createBiquadFilter(), gn = ac.createGain();
-      o1.type = 'sawtooth'; o2.type = 'square'; f.type = 'lowpass'; f.frequency.value = 800; gn.gain.value = 0;
-      o1.connect(f); o2.connect(f); f.connect(gn); gn.connect(ac.destination); o1.start(); o2.start();
-      audio = { ac, o1, o2, f, gn };
-    } catch (e) {}
+    if (audio) { audio.resume(); return; }
+    try { audio = window.ROB_AUDIO && window.ROB_AUDIO.create(); if (audio) syncVolUI(); } catch (e) { audio = null; }
   }
-  function thud() {
+  function thud() { if (audio) audio.fx.thud(); }
+  function updateAudio(dt) {
     if (!audio) return;
-    const ac = audio.ac, len = ac.sampleRate * 0.5, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
-    const src = ac.createBufferSource(), g = ac.createGain(); g.gain.value = 0.35; src.buffer = buf; src.connect(g); g.connect(ac.destination); src.start();
+    const kmh = S.v * KMH;
+    const lo = [0, 0, 22, 46][S.gear] || 0, hi = [0, 22, 46, 90][S.gear] || 90, inCar = S.mode === 'car', sp = Math.abs(S.v), cg = Math.min(4, Math.floor(sp / 11));
+    const rpm = inCar ? 0.08 + clamp((sp - cg * 11) / 11, 0, 1) * 0.7 + S.thr * 0.2 : 0.08 + clamp((kmh - lo) / (hi - lo), 0, 1) * 0.72 + S.thr * 0.2;
+    camera.getWorldDirection(_camFwd);
+    audio.update({ S, dt, rpm: Math.min(1, rpm), limiter: rpm > 0.97 || (S.gear === 3 && kmh > 85), brake: !!(inp.brake || inp.hb), crashType: S.crash && S.crash.type,
+      camera, camFwd: _camFwd, lake: [-176, 586], party: AUD_PARTY, trucks: AUD_TRUCKS });
   }
-  function updateAudio() {
-    if (!audio) return;
-    const now = audio.ac.currentTime, kmh = S.v * KMH;
-    const lo = [0, 0, 22, 46][S.gear], hi = [0, 22, 46, 90][S.gear], inCar = S.mode === 'car', sp = Math.abs(S.v), cg = Math.min(4, Math.floor(sp / 11));
-    const rpm = S.state !== 'ride' ? 0.12 : inCar ? 0.16 + clamp((sp - cg * 11) / 11, 0, 1) * 0.6 + S.thr * 0.18 : 0.18 + clamp((kmh - lo) / (hi - lo), 0, 1) * 0.65 + S.thr * 0.17;
-    const base = inCar ? 26 + rpm * 95 : 38 + rpm * 125;
-    audio.o1.frequency.setTargetAtTime(base, now, 0.04);
-    audio.o2.frequency.setTargetAtTime(base * 0.5, now, 0.04);
-    audio.f.frequency.setTargetAtTime(350 + rpm * 1600, now, 0.06);
-    audio.gn.gain.setTargetAtTime(S.paused || S.state === 'menu' ? 0 : S.state === 'ride' ? 0.05 + S.thr * 0.05 : 0.015, now, 0.08);
-  }
+  function syncVolUI() { for (const el of document.querySelectorAll('.vol input')) { const k = el.dataset.k; if (audio) el.value = Math.round(audio.vol[k] * 100); } }
+  for (const el of document.querySelectorAll('.vol input')) el.addEventListener('input', () => { if (audio) audio.setVol(el.dataset.k, el.value / 100); else try { const v = JSON.parse(localStorage.getItem('rob-audio-vol') || '{}'); v[el.dataset.k] = el.value / 100; localStorage.setItem('rob-audio-vol', JSON.stringify(v)); } catch (e) {} });
+  try { const v = JSON.parse(localStorage.getItem('rob-audio-vol') || '{}'); for (const el of document.querySelectorAll('.vol input')) if (v[el.dataset.k] !== undefined) el.value = Math.round(v[el.dataset.k] * 100); } catch (e) {}
 
   // ---------- physics
   const fwd = new T.Vector3();
@@ -3097,7 +3092,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 
     ensureCells(S.x, S.z, 1);
     drawDial();
-    updateAudio();
+    updateAudio(dt);
   }
 
   // ---------- quality levels and post-processing
@@ -3230,7 +3225,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   goBtn.disabled = false; if (!statusEl.textContent.startsWith('Using')) statusEl.textContent = '';
   drawDial();
 
-  window.__dbg = { get G3D() { return G3D; }, setG3D, POIS: POIS.pois, BRT, S, H, MAP, respawn, respawnHome, tiles, cells, applyQuality, raisedAt, blocked, RD, bike, inp, T };
+  window.__dbg = { get G3D() { return G3D; }, get audio() { return audio; }, setG3D, POIS: POIS.pois, BRT, S, H, MAP, respawn, respawnHome, tiles, cells, applyQuality, raisedAt, blocked, RD, bike, inp, T };
   let last = performance.now();
   function loop(now) {
     requestAnimationFrame(loop);
