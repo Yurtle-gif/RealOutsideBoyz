@@ -2103,6 +2103,37 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   }
   scene.add(EXTRA_ROOT);
   // show POIs within 260 m; build sign textures lazily and free them when far
+  // ---------- International Blvd transit: bus stops, Tempo BRT median platforms and traffic signals at OSM positions (models/international-transit.json)
+  const TRANSIT = await fetch('models/international-transit.json').then(r => r.json()).catch(() => null);
+  if (TRANSIT) {
+    const bins = {}, M4 = new T.Matrix4(), Q = new T.Quaternion(), E3 = new T.Euler(), V = new T.Vector3(), SC = new T.Vector3();
+    const put = (key, geo, x, y, z, yaw, sx, sy, sz, tilt = 0) => { E3.set(tilt, yaw, 0, 'YXZ'); Q.setFromEuler(E3); M4.compose(V.set(x, y, z), Q, SC.set(sx, sy, sz)); const g = geo.clone(); g.applyMatrix4(M4); (bins[key] = bins[key] || []).push(g); };
+    const BOX = new T.BoxGeometry(1, 1, 1), PLANE = new T.PlaneGeometry(1, 1);
+    const busTex = (() => { const c = document.createElement('canvas'); c.width = 128; c.height = 128; const g = c.getContext('2d'); g.fillStyle = '#1d5fa8'; g.fillRect(0, 0, 128, 128); g.fillStyle = '#fff'; g.fillRect(6, 6, 116, 116); g.fillStyle = '#1d5fa8'; g.fillRect(12, 12, 104, 104); g.fillStyle = '#fff'; g.font = '700 46px Anton, Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('BUS', 64, 66); const t = new T.CanvasTexture(c); t.encoding = T.sRGBEncoding; return t; })();
+    const MATS = { conc: new T.MeshStandardMaterial({ color: col('#b9b4aa'), roughness: 0.85 }), metal: new T.MeshStandardMaterial({ color: col('#59626b'), roughness: 0.4, metalness: 0.6 }), roof: new T.MeshStandardMaterial({ color: col('#e9edf0'), roughness: 0.35, metalness: 0.3 }), glass: new T.MeshStandardMaterial({ color: col('#9fc3d6'), roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.45 }), signal: new T.MeshStandardMaterial({ color: col('#2b2b22'), roughness: 0.6 }), lamp: new T.MeshStandardMaterial({ color: col('#ffd75a'), emissive: col('#ffb020'), emissiveIntensity: 0.6 }), sign: new T.MeshBasicMaterial({ map: busTex, toneMapped: false, side: T.DoubleSide }), kiosk: new T.MeshStandardMaterial({ color: col('#1d5fa8'), roughness: 0.5 }) };
+    const off = (p, a, c) => [p.x + Math.sin(p.yaw) * a + Math.cos(p.yaw) * c, p.z + Math.cos(p.yaw) * a - Math.sin(p.yaw) * c]; // a = along the street, c = across
+    for (const p of TRANSIT.platforms) { // Tempo BRT median platform: raised slab, end ramps, canopy on columns, railing, ticket machine, BUS signs
+      const y = H(p.x, p.z), L = 28, W = 3.2, PH = 0.35;
+      put('conc', BOX, p.x, y + PH / 2, p.z, p.yaw, W, PH, L);
+      for (const s of [-1, 1]) { const [rx, rz] = off(p, s * (L / 2 + 2.4), 0); put('conc', BOX, rx, y + PH / 2 - 0.05, rz, p.yaw, W * 0.6, 0.12, 5, s * -0.07); }
+      for (const a of [-6, -2, 2, 6]) { const [cx, cz] = off(p, a, -W / 2 + 0.35); put('metal', BOX, cx, y + PH + 1.75, cz, p.yaw, 0.22, 3.5, 0.22); }
+      const [kx, kz] = off(p, 0, -0.2); put('roof', BOX, kx, y + PH + 3.6, kz, p.yaw, W + 0.6, 0.18, 15); put('glass', BOX, kx, y + PH + 3.45, kz, p.yaw, W + 0.4, 0.05, 14.5);
+      for (let a = -L / 2 + 0.5; a <= L / 2 - 0.5; a += 3) { const [qx, qz] = off(p, a, -W / 2 + 0.1); put('metal', BOX, qx, y + PH + 0.55, qz, p.yaw, 0.06, 1.1, 0.06); }
+      { const [qx, qz] = off(p, 0, -W / 2 + 0.1); put('metal', BOX, qx, y + PH + 1.1, qz, p.yaw, 0.07, 0.07, L - 1); put('metal', BOX, qx, y + PH + 0.6, qz, p.yaw, 0.05, 0.05, L - 1); }
+      { const [tx, tz] = off(p, 4, -W / 2 + 0.7); put('kiosk', BOX, tx, y + PH + 0.8, tz, p.yaw, 0.45, 1.6, 0.6); }
+      for (const s of [-1, 1]) { const [sx, sz] = off(p, s * 7.6, -0.2); put('sign', PLANE, sx, y + PH + 3.05, sz, p.yaw, 1.1, 0.75, 1); }
+      rectCollider(p.x, p.z, p.yaw, W, L); for (const a of [-6, -2, 2, 6]) { const [cx, cz] = off(p, a, -W / 2 + 0.35); rectCollider(cx, cz, p.yaw, 0.35, 0.35); }
+    }
+    for (const p of TRANSIT.stops) { // curbside stop: pole + double-sided BUS sign
+      const y = H(p.x, p.z); put('metal', BOX, p.x, y + 1.5, p.z, p.yaw, 0.09, 3, 0.09); put('sign', PLANE, p.x, y + 2.65, p.z, p.yaw + Math.PI / 2, 0.6, 0.6, 1); rectCollider(p.x, p.z, p.yaw, 0.3, 0.3);
+    }
+    for (const p of TRANSIT.signals) { // signal pole with a head facing traffic
+      const y = H(p.x, p.z); put('signal', BOX, p.x, y + 2.6, p.z, p.yaw, 0.2, 5.2, 0.2); put('signal', BOX, p.x, y + 4.6, p.z, p.yaw, 0.4, 1.1, 0.35); put('lamp', BOX, p.x, y + 4.9, p.z, p.yaw, 0.18, 0.18, 0.4); rectCollider(p.x, p.z, p.yaw, 0.35, 0.35);
+    }
+    const TRANSIT_ROOT = new T.Group(); TRANSIT_ROOT.name = 'intl-transit';
+    for (const k in bins) { const m = new T.Mesh(T.BufferGeometryUtils.mergeBufferGeometries(bins[k]), MATS[k]); m.castShadow = k !== 'sign' && k !== 'glass'; m.receiveShadow = true; TRANSIT_ROOT.add(m); }
+    EXTRA_ROOT.add(TRANSIT_ROOT);
+  }
   let poiT = 0;
   function updatePOIs(dt, px, pz, g3dGround) {
     if ((poiT += dt) < 0.4) return; poiT = 0;
