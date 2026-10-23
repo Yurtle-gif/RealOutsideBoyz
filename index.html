@@ -56,11 +56,14 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 .go:focus-visible{outline:3px solid #fff;outline-offset:3px}
 .go:disabled{opacity:.6;cursor:wait}
 #status{font-size:14px;color:rgba(255,255,255,.75);min-height:1.2em}
-.qrow{display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;color:rgba(255,255,255,.7)}
+.qrow{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;font-size:13px;color:rgba(255,255,255,.7)}
 .qrow .lbl{margin-right:4px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;font-size:12px}
 .qbtn{appearance:none;border:1px solid var(--line);background:rgba(255,255,255,.08);color:#fff;font-family:var(--round);font-weight:700;font-size:13px;padding:5px 11px;border-radius:999px;cursor:pointer}
 .qbtn[aria-pressed="true"]{background:var(--gold);color:#1b1408;border-color:var(--gold)}
 .qbtn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.modebtn{appearance:none;border:1px solid var(--line);background:rgba(255,255,255,.08);color:#fff;font-family:var(--round);font-weight:700;font-size:13px;padding:6px 14px;border-radius:999px;cursor:pointer}
+.modebtn[aria-pressed="true"]{background:#3b4478;border-color:#8fa2ff;box-shadow:0 0 14px rgba(106,132,255,.3)}
+.modebtn:focus-visible{outline:2px solid #fff;outline-offset:2px}
 .credit{font-size:12px!important;color:rgba(255,255,255,.6)!important}
 .touch{position:fixed;z-index:4;left:0;right:0;bottom:0;display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 12px);padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:calc(max(14px,env(safe-area-inset-right,0px)) + 130px);pointer-events:none}
 .pad{display:flex;gap:10px;pointer-events:auto;align-items:flex-end}
@@ -109,7 +112,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       <div><kbd>F</kbd><span>Switch ride</span></div>
       <div><kbd>1</kbd><kbd>4</kbd><span>Wheelie tricks</span></div>
     </div>
-    <div class="qrow" role="group" aria-label="Graphics quality"><span class="lbl">Quality</span><button class="qbtn" type="button" data-q="low">Low</button><button class="qbtn" type="button" data-q="medium">Medium</button><button class="qbtn" type="button" data-q="high">High</button></div>
+    <div class="qrow" role="group" aria-label="Graphics quality"><span class="lbl">Quality</span><button class="qbtn" type="button" data-q="auto">Auto</button><button class="qbtn" type="button" data-q="low">Low</button><button class="qbtn" type="button" data-q="medium">Medium</button><button class="qbtn" type="button" data-q="high">High</button></div>
+    <div class="qrow" role="group" aria-label="Lighting mode"><span class="lbl">Lighting</span><button id="nightBtn" class="modebtn" type="button" aria-pressed="false">Sunset</button></div>
     <div id="status">Loading Oakland…</div>
     <p class="credit">Map data © OpenStreetMap contributors</p>
     <button id="go" class="go" type="button" disabled>Ride</button>
@@ -153,11 +157,11 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
   const scene = new T.Scene();
   const camera = new T.PerspectiveCamera(60, 1, 0.05, 900);
-  const FOG = '#0c1022';
-  scene.fog = new T.Fog(FOG, 45, 190);
+  const FOG = '#544966';
+  scene.fog = new T.Fog(FOG, 52, 205);
   scene.background = new T.Color(FOG).convertSRGBToLinear();
-  scene.add(new T.HemisphereLight(0x3a4a8a, 0x1a1420, 0.55));
-  const sun = new T.DirectionalLight(0x9fb0ff, 0.38); sun.position.set(60, 110, 35); scene.add(sun); scene.add(sun.target);
+  const hemi = new T.HemisphereLight(0x8fa6cf, 0x3b2730, 0.72); scene.add(hemi);
+  const sun = new T.DirectionalLight(0xffb879, 1.0); sun.position.set(60, 110, 35); scene.add(sun); scene.add(sun.target);
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
   sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
   Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 320 }); sun.shadow.camera.updateProjectionMatrix();
@@ -167,6 +171,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; }
   function tex(c, repeat) { const t = new T.CanvasTexture(c); t.encoding = T.sRGBEncoding; t.anisotropy = 4; if (repeat) t.wrapS = t.wrapT = T.RepeatWrapping; return t; }
   const mats = new Map();
+  let lowCityMaterials = false;
   // City materials carry a base + tint; the city builder swaps them for a few shared vertex-coloured materials
   function lam(h) { let m = mats.get('l' + h); if (!m) { m = new T.MeshLambertMaterial({ color: col(h) }); m.userData = { base: 'L', tint: col(h) }; mats.set('l' + h, m); } return m; }
   function glow(h) { let m = mats.get('g' + h); if (!m) { const t = col(h).multiplyScalar(1.7); m = new T.MeshBasicMaterial({ color: t }); m.userData = { base: 'G', tint: t }; mats.set('g' + h, m); } return m; }
@@ -180,26 +185,63 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     }
     x.putImageData(out, 0, 0); const t = new T.CanvasTexture(c); t.wrapS = t.wrapT = T.RepeatWrapping; t.anisotropy = 8; return t;
   }
-  function texMat(t, h) { return new T.MeshLambertMaterial({ map: t, color: col(h || '#ffffff') }); }
+  function texMat(t, h) { return new T.MeshStandardMaterial({ map: t, color: col(h || '#ffffff'), metalness: 0.02, roughness: 0.84 }); }
 
-  // ---------- sky dome
-  (function sky() {
-    const [c, x] = makeCanvas(2048, 1024);
-    const g = x.createLinearGradient(0, 0, 0, 1024);
-    g.addColorStop(0, '#05070f'); g.addColorStop(0.25, '#0b1026'); g.addColorStop(0.42, '#1c1a3f'); g.addColorStop(0.49, '#3b2446'); g.addColorStop(0.5, FOG); g.addColorStop(1, FOG);
-    x.fillStyle = g; x.fillRect(0, 0, 2048, 1024);
-    const r = rng(7);
-    for (let k = 0; k < 900; k++) { const a = 0.35 + r() * 0.65, s = r() < 0.08 ? 2.2 : 1.2; x.fillStyle = 'rgba(255,255,255,' + a + ')'; x.fillRect(r() * 2048, r() * 470, s, s); }
-    for (let k = 0; k < 22; k++) {
-      const cx = r() * 2048, cy = 150 + r() * 300, n = 4 + (r() * 5 | 0), s = 18 + r() * 40;
+  // ---------- procedural sunset/night skies and prefiltered reflection maps
+  function makeSky(mode) {
+    const [c, x] = makeCanvas(1024, 512);
+    const g = x.createLinearGradient(0, 0, 0, 512);
+    if (mode === 'night') { g.addColorStop(0, '#02040b'); g.addColorStop(0.42, '#101936'); g.addColorStop(0.72, '#293052'); g.addColorStop(1, '#111522'); }
+    else { g.addColorStop(0, '#203968'); g.addColorStop(0.42, '#765b78'); g.addColorStop(0.67, '#ef8b63'); g.addColorStop(0.76, '#f5b477'); g.addColorStop(1, '#57485c'); }
+    x.fillStyle = g; x.fillRect(0, 0, 1024, 512);
+    const r = rng(mode === 'night' ? 7 : 19);
+    if (mode === 'night') for (let k = 0; k < 480; k++) { const a = 0.3 + r() * 0.7, s = r() < 0.08 ? 2 : 1; x.fillStyle = 'rgba(255,255,255,' + a + ')'; x.fillRect(r() * 1024, r() * 260, s, s); }
+    for (let k = 0; k < 16; k++) {
+      const cx = r() * 1024, cy = 90 + r() * 180, n = 4 + (r() * 5 | 0), s = 10 + r() * 25;
       for (let m = 0; m < n; m++) { x.fillStyle = 'rgba(90,100,150,' + (0.04 + r() * 0.05) + ')'; x.beginPath(); x.ellipse(cx + (r() - 0.5) * s * 3, cy + (r() - 0.5) * s * 0.8, s * (0.7 + r()), s * (0.45 + r() * 0.4), 0, 0, Math.PI * 2); x.fill(); }
     }
-    const mg = x.createRadialGradient(1500, 150, 10, 1500, 150, 90); mg.addColorStop(0, 'rgba(255,250,230,1)'); mg.addColorStop(0.3, 'rgba(255,250,230,1)'); mg.addColorStop(0.36, 'rgba(255,240,200,0.25)'); mg.addColorStop(1, 'rgba(255,240,200,0)');
-    x.fillStyle = mg; x.fillRect(1400, 50, 200, 200);
-    const m = new T.MeshBasicMaterial({ map: tex(c), side: T.BackSide, fog: false, depthWrite: false });
-    const dome = new T.Mesh(new T.SphereGeometry(800, 32, 16), m); dome.renderOrder = -1;
-    scene.add(dome); scene.userData.dome = dome;
-  })();
+    const sx = mode === 'night' ? 765 : 790, sy = mode === 'night' ? 80 : 300, sr = mode === 'night' ? 38 : 72;
+    const mg = x.createRadialGradient(sx, sy, 3, sx, sy, sr); mg.addColorStop(0, mode === 'night' ? '#fffbe8' : '#fff5c7'); mg.addColorStop(0.18, mode === 'night' ? '#e7edff' : '#ffd58a'); mg.addColorStop(1, 'rgba(255,190,120,0)');
+    x.fillStyle = mg; x.fillRect(sx - sr, sy - sr, sr * 2, sr * 2);
+    const t = tex(c); t.mapping = T.EquirectangularReflectionMapping; return t;
+  }
+  const SKY = { sunset: makeSky('sunset'), night: makeSky('night') };
+  const skyMat = new T.MeshBasicMaterial({ map: SKY.sunset, side: T.BackSide, fog: false, depthWrite: false });
+  const dome = new T.Mesh(new T.SphereGeometry(800, 32, 16), skyMat); dome.renderOrder = -1; scene.add(dome); scene.userData.dome = dome;
+  const pmrem = new T.PMREMGenerator(renderer); pmrem.compileEquirectangularShader();
+  const ENV_TARGETS = { sunset: pmrem.fromEquirectangular(SKY.sunset), night: pmrem.fromEquirectangular(SKY.night) };
+  const ENV = { sunset: ENV_TARGETS.sunset.texture, night: ENV_TARGETS.night.texture }; pmrem.dispose();
+  scene.environment = ENV.sunset;
+
+  // GLTFs in this repo mix legacy and PBR materials. Normalize the hero vehicles/rider while preserving their maps.
+  const upgradedMaterials = new WeakMap();
+  function toStandard(source, label, kind) {
+    if (!source) return source;
+    let m = upgradedMaterials.get(source);
+    if (m) return m;
+    if (source.isMeshStandardMaterial || source.isMeshPhysicalMaterial) m = source;
+    else {
+      m = new T.MeshStandardMaterial();
+      for (const k of ['name', 'map', 'normalMap', 'normalScale', 'aoMap', 'aoMapIntensity', 'lightMap', 'lightMapIntensity', 'emissiveMap', 'alphaMap', 'bumpMap', 'bumpScale', 'displacementMap', 'displacementScale', 'displacementBias', 'side', 'shadowSide', 'opacity', 'transparent', 'alphaTest', 'depthTest', 'depthWrite', 'vertexColors', 'flatShading', 'skinning', 'morphTargets', 'morphNormals']) if (source[k] !== undefined) m[k] = source[k];
+      if (source.color) m.color.copy(source.color);
+      if (source.emissive) m.emissive.copy(source.emissive);
+      if (source.emissiveIntensity !== undefined) m.emissiveIntensity = source.emissiveIntensity;
+    }
+    const n = ((label || '') + ' ' + (source.name || '')).toLowerCase();
+    if (/tyre|tire|rubber|grip|sole/.test(n)) { m.metalness = 0; m.roughness = 0.9; }
+    else if (/chrome|rim|metal|fork|disc|rotor|chain|exhaust|engine|alum|steel|spoke/.test(n)) { m.metalness = 0.88; m.roughness = 0.2; }
+    else if (/paint|body|fairing|fender|tank|frame|helmet/.test(n)) { m.metalness = kind === 'rider' ? 0.15 : 0.48; m.roughness = 0.27; }
+    else { m.metalness = kind === 'vehicle' ? Math.min(m.metalness || 0.08, 0.28) : 0; m.roughness = kind === 'rider' ? 0.7 : Math.max(m.roughness || 0.58, 0.48); }
+    m.envMap = null; m.envMapIntensity = kind === 'vehicle' ? 1.25 : 0.65; m.needsUpdate = true;
+    upgradedMaterials.set(source, m); return m;
+  }
+  function upgradeModelMaterials(root, kind) {
+    root.traverse(o => {
+      if (!o.isMesh && !o.isSkinnedMesh) return;
+      o.material = Array.isArray(o.material) ? o.material.map(m => toStandard(m, o.name, kind)) : toStandard(o.material, o.name, kind);
+      o.castShadow = true;
+    });
+  }
 
   // ---------- textures
   const asphaltTex = (function () {
@@ -246,7 +288,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     return c;
   })();
   const walkNormal = heightToNormal(walkCanvas, 2.2);
-  const walkMat = new T.MeshPhongMaterial({ map: tex(walkCanvas, true), normalMap: walkNormal, normalScale: new T.Vector2(0.6, 0.6), shininess: 8, specular: col('#222') });
+  const walkMat = new T.MeshStandardMaterial({ map: tex(walkCanvas, true), normalMap: walkNormal, normalScale: new T.Vector2(0.6, 0.6), roughness: 0.86, metalness: 0 });
   const curbMat = lam('#a39a91');
   function windowCanvas(glass) {
     const [c, x] = makeCanvas(128, 128);
@@ -281,14 +323,25 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function ribMat(h) { const k = 'r' + h; let m = mats.get(k); if (!m) { m = new T.MeshLambertMaterial({ color: col(h), map: RIB }); m.userData = { base: 'R', tint: col(h) }; mats.set(k, m); } return m; }
   // Shared city materials: every tinted box, light, window wall and ribbed wall in a block merges into one of these
   const SH = {
-    L: new T.MeshLambertMaterial({ vertexColors: true }),
+    L: new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.76, metalness: 0.02, envMapIntensity: 0.55 }),
     G: new T.MeshBasicMaterial({ vertexColors: true }),
-    W0: new T.MeshLambertMaterial({ vertexColors: true, map: WIN[0], emissive: 0xffffff, emissiveMap: WIN_N[0], emissiveIntensity: 0.72 }),
-    W1: new T.MeshLambertMaterial({ vertexColors: true, map: WIN[1], emissive: 0xffffff, emissiveMap: WIN_N[1], emissiveIntensity: 0.72 }),
-    W2: new T.MeshLambertMaterial({ vertexColors: true, map: WIN[2], emissive: 0xffffff, emissiveMap: WIN_N[2], emissiveIntensity: 0.72 }),
-    W3: new T.MeshLambertMaterial({ vertexColors: true, map: WIN[1], emissive: 0xffffff, emissiveMap: WIN_N[1], emissiveIntensity: 0.72 }),
+    W0: new T.MeshStandardMaterial({ vertexColors: true, map: WIN[0], roughness: 0.52, metalness: 0.04, emissive: 0xffffff, emissiveMap: WIN_N[0], emissiveIntensity: 0.15 }),
+    W1: new T.MeshStandardMaterial({ vertexColors: true, map: WIN[1], roughness: 0.56, metalness: 0.03, emissive: 0xffffff, emissiveMap: WIN_N[1], emissiveIntensity: 0.15 }),
+    W2: new T.MeshStandardMaterial({ vertexColors: true, map: WIN[2], roughness: 0.48, metalness: 0.06, emissive: 0xffffff, emissiveMap: WIN_N[2], emissiveIntensity: 0.15 }),
+    W3: new T.MeshStandardMaterial({ vertexColors: true, map: WIN[1], roughness: 0.62, metalness: 0.02, emissive: 0xffffff, emissiveMap: WIN_N[1], emissiveIntensity: 0.15 }),
+    R: new T.MeshStandardMaterial({ vertexColors: true, map: RIB, roughness: 0.58, metalness: 0.28, envMapIntensity: 0.7 })
+  };
+  // Low uses matching legacy city shaders; Medium/High use the PBR set above. Props are merged with each city tile,
+  // so this swap saves shader cost and preserves the original mobile draw-call budget.
+  const SH_LOW = {
+    L: new T.MeshLambertMaterial({ vertexColors: true }),
+    W0: new T.MeshLambertMaterial({ vertexColors: true, map: WIN[0], emissive: 0xffffff, emissiveMap: WIN_N[0], emissiveIntensity: 0.15 }),
+    W1: new T.MeshLambertMaterial({ vertexColors: true, map: WIN[1], emissive: 0xffffff, emissiveMap: WIN_N[1], emissiveIntensity: 0.15 }),
+    W2: new T.MeshLambertMaterial({ vertexColors: true, map: WIN[2], emissive: 0xffffff, emissiveMap: WIN_N[2], emissiveIntensity: 0.15 }),
+    W3: new T.MeshLambertMaterial({ vertexColors: true, map: WIN[1], emissive: 0xffffff, emissiveMap: WIN_N[1], emissiveIntensity: 0.15 }),
     R: new T.MeshLambertMaterial({ vertexColors: true, map: RIB })
   };
+  for (const k of ['L', 'W0', 'W1', 'W2', 'W3', 'R']) { SH[k].userData.lowPeer = SH_LOW[k]; SH_LOW[k].userData.pbrPeer = SH[k]; }
   // Sign atlas: shop signs, murals, taco sign and street-name plates all live on one texture
   const ATLAS_W = 4096, ATLAS_H = 4096;
   const [atlasC, ax] = makeCanvas(ATLAS_W, ATLAS_H);
@@ -544,7 +597,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   const ART_TEX = tex(artC); ART_TEX.anisotropy = 8;
   const ART_LIT = new T.MeshBasicMaterial({ map: ART_TEX, side: T.DoubleSide, color: new T.Color(0.92, 0.92, 0.92) });
   ART_LIT.userData = { noShadow: true };
-  const ART_WALL = new T.MeshLambertMaterial({ map: ART_TEX, transparent: true, alphaTest: 0.08, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, emissive: 0xffffff, emissiveMap: ART_TEX, emissiveIntensity: 0.42 });
+  const ART_WALL = new T.MeshStandardMaterial({ map: ART_TEX, roughness: 0.7, metalness: 0, transparent: true, alphaTest: 0.08, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, emissive: 0xffffff, emissiveMap: ART_TEX, emissiveIntensity: 0.16 });
   ART_WALL.userData = { noShadow: true };
   // spray a few walls of a building: big pieces on long blank walls, throw-ups and tag walls on shorter ones
   function graffitiWalls(b, p, B, bi) {
@@ -579,12 +632,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   const WATER = new T.MeshStandardMaterial({ color: col('#1a2a4a'), emissive: col('#0e1a3a'), emissiveIntensity: 0.5, roughness: 0.12, metalness: 0.3, envMapIntensity: 1.4 });
   // light pools: additive radial glow quads laid on the ground under lamps and neon
   const poolTex = (function () { const [c, x] = makeCanvas(128, 128); const g = x.createRadialGradient(64, 64, 2, 64, 64, 62); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.5, 'rgba(255,255,255,0.35)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, 128, 128); return tex(c); })();
-  function poolMat(h, a) { const m = new T.MeshBasicMaterial({ map: poolTex, color: col(h), transparent: true, opacity: a, blending: T.AdditiveBlending, depthWrite: false, fog: true }); m.userData = { noShadow: true }; return m; }
+  const glowPools = [];
+  function poolMat(h, a) { const m = new T.MeshBasicMaterial({ map: poolTex, color: col(h), transparent: true, opacity: a, blending: T.AdditiveBlending, depthWrite: false, fog: true }); m.userData = { noShadow: true, baseOpacity: a }; glowPools.push(m); return m; }
   const POOL_LAMP = poolMat('#ffb65c', 0.5);
-  const envRT = new T.WebGLCubeRenderTarget(128, { format: T.RGBFormat, generateMipmaps: true, minFilter: T.LinearMipmapLinearFilter });
-  const envCam = new T.CubeCamera(0.6, 260, envRT);
-  envCam.children.forEach(c => { c.layers.set(0); });
-  plainMat.envMap = envRT.texture; WATER.envMap = envRT.texture;
   const NEON = ['#ff2d95', '#00e5ff', '#39ff14', '#ff6a00', '#b537f2', '#ffe600'];
   const POOL_NEON = NEON.map(h => poolMat(h, 0.32));
   function pool(b, mat, x, z, r, y) { b.quad(mat, [x - r, y, z - r], [x + r, y, z - r], [x + r, y, z + r], [x - r, y, z + r], [0, 0], [1, 0], [1, 1], [0, 1], UP); }
@@ -657,7 +707,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
         geo.setAttribute('uv', new T.Float32BufferAttribute(B.u, 2));
         if (B.vc) geo.setAttribute('color', new T.Float32BufferAttribute(B.c, 3));
         geo.computeBoundingSphere();
-        const mesh = new T.Mesh(geo, mat);
+        const drawMat = lowCityMaterials && mat.userData && mat.userData.lowPeer ? mat.userData.lowPeer : mat;
+        const mesh = new T.Mesh(geo, drawMat);
         if (!(mat.userData && mat.userData.noShadow)) { mesh.castShadow = true; }
         mesh.receiveShadow = true;
         geos.push(geo); g.add(mesh);
@@ -941,7 +992,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   for (const m of [LINE_Y, LINE_W, PAINT_RED, PAINT_GREEN]) m.userData.noShadow = true;
   const OFFICE_T = ['#d6d9dd', '#bfc5cc', '#e9ebee', '#a9b4bf', '#c9c2b6', '#9eacbb'];
   const DOWN = [0, -1, 0];
-  const SIDEWALK = new T.MeshPhongMaterial({ map: walkMat.map, normalMap: walkNormal, normalScale: new T.Vector2(0.6, 0.6), color: col('#e2ddd6'), shininess: 8, specular: col('#222') });
+  const SIDEWALK = new T.MeshStandardMaterial({ map: walkMat.map, normalMap: walkNormal, normalScale: new T.Vector2(0.6, 0.6), color: col('#e2ddd6'), roughness: 0.87, metalness: 0 });
   const CURB = lam('#b5aea5');
   const FWY_TOP = plainMat;
   const CONCRETE = lam('#bdb8ae'), CONCRETE_D = lam('#a19c93');
@@ -1097,9 +1148,13 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   {
     const names = ['wall_brick', 'wall_stucco', 'wall_office', 'wall_siding'];
     const ims = await Promise.all(names.flatMap(n => [loadImg('models/walls/' + n + '.jpg'), loadImg('models/walls/' + n + '_n.jpg')]).concat([loadImg('models/walls/wall_rib.jpg')]));
-    const mk = (im, rep) => { const t = new T.Texture(im); t.encoding = T.sRGBEncoding; t.wrapS = t.wrapT = T.RepeatWrapping; t.anisotropy = 8; if (rep) t.repeat.set(0.25, 1 / 3); t.needsUpdate = true; return t; };
-    names.forEach((n, i) => { const d = ims[i * 2], nn = ims[i * 2 + 1]; if (!d || !nn) return; const m = SH['W' + i]; m.map = mk(d, true); m.emissiveMap = mk(nn, true); m.emissiveIntensity = 0.9; m.needsUpdate = true; });
-    if (ims[8]) { SH.R.map = mk(ims[8]); SH.R.needsUpdate = true; }
+    const mk = (im, rep, color) => { const t = new T.Texture(im); if (color) t.encoding = T.sRGBEncoding; t.wrapS = t.wrapT = T.RepeatWrapping; t.anisotropy = 8; if (rep) t.repeat.set(0.25, 1 / 3); t.needsUpdate = true; return t; };
+    names.forEach((n, i) => {
+      const d = ims[i * 2], nn = ims[i * 2 + 1]; if (!d || !nn) return;
+      const m = SH['W' + i], lm = SH_LOW['W' + i]; m.map = mk(d, true, true); m.normalMap = mk(nn, true, false); m.normalScale = new T.Vector2(0.55, 0.55); m.userData.wallNormal = n; m.needsUpdate = true;
+      lm.map = m.map; lm.needsUpdate = true;
+    });
+    if (ims[8]) { SH.R.map = mk(ims[8], false, true); SH_LOW.R.map = SH.R.map; SH.R.needsUpdate = SH_LOW.R.needsUpdate = true; }
   }
   // prop sprites: one atlas, one camera-facing shader, merged per tile
   const PA = { W: 2048, H: 2048, x: 0, y: 0, rowH: 0 };
@@ -1138,7 +1193,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     const m = new T.Mesh(g, PROP_MAT); m.frustumCulled = true; return m;
   }
   // puddles: glossy dark patches that reflect the env cube
-  const PUDDLE = new T.MeshStandardMaterial({ color: col('#1a1d26'), roughness: 0.04, metalness: 0.35, envMap: envRT.texture, envMapIntensity: 1.6, transparent: true, opacity: 0.85 });
+  const PUDDLE = new T.MeshStandardMaterial({ color: col('#1a1d26'), roughness: 0.04, metalness: 0.35, envMapIntensity: 1.6, transparent: true, opacity: 0.85 });
   PUDDLE.userData = { noShadow: true };
   function puddle(b, x, z, r, y, rr) {
     const n = 10, pts = [];
@@ -1460,7 +1515,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   });
   // materials
   const stuccoCanvas = (function () { const [c, x] = makeCanvas(512, 512), r = rng(77); x.fillStyle = '#f3ead8'; x.fillRect(0, 0, 512, 512); for (let i = 0; i < 26000; i++) { x.fillStyle = r() < 0.5 ? 'rgba(255,255,255,' + (0.05 + r() * 0.08) + ')' : 'rgba(120,100,70,' + (0.04 + r() * 0.08) + ')'; const s = 1 + (r() * 3 | 0); x.fillRect(r() * 512, r() * 512, s, s); } return c; })();
-  const STUCCO = new T.MeshPhongMaterial({ color: col('#b3ab9c'), map: tex(stuccoCanvas, true), normalMap: heightToNormal(stuccoCanvas, 1.2), normalScale: new T.Vector2(0.35, 0.35), shininess: 4, specular: col('#1a1a1a') });
+  const STUCCO = new T.MeshStandardMaterial({ color: col('#b3ab9c'), map: tex(stuccoCanvas, true), normalMap: heightToNormal(stuccoCanvas, 1.2), normalScale: new T.Vector2(0.35, 0.35), roughness: 0.9, metalness: 0 });
   const tileCanvas = (function () {
     const [c, x] = makeCanvas(256, 256), r = rng(78); // 1 m x 1 m: 4 rows of 6 barrel tiles
     x.fillStyle = '#6e2f21'; x.fillRect(0, 0, 256, 256);
@@ -1473,10 +1528,10 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     }
     return c;
   })();
-  const TILES = new T.MeshPhongMaterial({ map: tex(tileCanvas, true), normalMap: heightToNormal(tileCanvas, 2.5), normalScale: new T.Vector2(0.7, 0.7), shininess: 12, specular: col('#332') });
+  const TILES = new T.MeshStandardMaterial({ map: tex(tileCanvas, true), normalMap: heightToNormal(tileCanvas, 2.5), normalScale: new T.Vector2(0.7, 0.7), roughness: 0.68, metalness: 0.02 });
   const plankCanvas = (function () { const [c, x] = makeCanvas(128, 256), r = rng(79); x.fillStyle = '#8f9ca3'; x.fillRect(0, 0, 128, 256); for (let k = 0; k < 8; k++) { x.fillStyle = 'rgba(0,0,0,' + (0.18 + r() * 0.1) + ')'; x.fillRect(0, k * 32, 128, 3); x.fillStyle = 'rgba(255,255,255,' + (0.05 + r() * 0.06) + ')'; x.fillRect(0, k * 32 + 3, 128, 2); } return c; })();
-  const PLANKS = new T.MeshPhongMaterial({ map: tex(plankCanvas, true), normalMap: heightToNormal(plankCanvas, 2), normalScale: new T.Vector2(0.5, 0.5), shininess: 20, specular: col('#333') });
-  const HOUSE_GLASS = new T.MeshStandardMaterial({ color: col('#0c1218'), roughness: 0.08, metalness: 0.7, envMap: envRT.texture, envMapIntensity: 1.3, emissive: col('#ffd9a0'), emissiveIntensity: 0.16 });
+  const PLANKS = new T.MeshStandardMaterial({ map: tex(plankCanvas, true), normalMap: heightToNormal(plankCanvas, 2), normalScale: new T.Vector2(0.5, 0.5), roughness: 0.62, metalness: 0 });
+  const HOUSE_GLASS = new T.MeshStandardMaterial({ color: col('#0c1218'), roughness: 0.08, metalness: 0.7, envMapIntensity: 1.3, emissive: col('#ffd9a0'), emissiveIntensity: 0.16 });
   const TRIM = lam('#ece9e1'), PLINTH = lam('#c6c1b8'), MEMBRANE = lam('#4a4845'), RAIL = lam('#eeeeea'), DECK = lam('#e4ded4');
   const WATER_LV = (function () { const hs = []; for (const w of MAP.water) if (w.length > 300) for (let k = 0; k < w.length; k += 2) hs.push(H(w[k], w[k + 1])); if (!hs.length) return 0; hs.sort((a, b) => a - b); return hs[Math.floor(hs.length * 0.2)] - 0.3; })();
 
@@ -1602,10 +1657,10 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   const flipZ = pts => pts.map(([x, z]) => [x, -z]);
   const PIERS = LAKE.piers.map(flipZ), ISLANDS = LAKE.islands.map(flipZ), LTREES = flipZ(LAKE.trees), BENCHES = flipZ(LAKE.benches);
   const concreteCanvas = (function () { const [c, x] = makeCanvas(512, 512), r = rng(91); x.fillStyle = '#c9c4ba'; x.fillRect(0, 0, 512, 512); for (let i = 0; i < 30000; i++) { x.fillStyle = r() < 0.5 ? 'rgba(255,255,255,' + (0.04 + r() * 0.06) + ')' : 'rgba(40,36,30,' + (0.04 + r() * 0.08) + ')'; const s = 1 + (r() * 2 | 0); x.fillRect(r() * 512, r() * 512, s, s); } x.fillStyle = 'rgba(40,36,30,.35)'; x.fillRect(0, 0, 512, 3); x.fillRect(0, 0, 3, 512); return c; })();
-  const CONC = new T.MeshPhongMaterial({ map: tex(concreteCanvas, true), normalMap: heightToNormal(concreteCanvas, 1.4), normalScale: new T.Vector2(0.4, 0.4), shininess: 6, specular: col('#222') });
-  const CONC_WALL = new T.MeshPhongMaterial({ map: tex(concreteCanvas, true), color: col('#b9b3a8'), shininess: 4, specular: col('#111') });
+  const CONC = new T.MeshStandardMaterial({ map: tex(concreteCanvas, true), normalMap: heightToNormal(concreteCanvas, 1.4), normalScale: new T.Vector2(0.4, 0.4), roughness: 0.88, metalness: 0 });
+  const CONC_WALL = new T.MeshStandardMaterial({ map: tex(concreteCanvas, true), color: col('#b9b3a8'), roughness: 0.92, metalness: 0 });
   const deckCanvas = (function () { const [c, x] = makeCanvas(256, 256), r = rng(93); x.fillStyle = '#9a9388'; x.fillRect(0, 0, 256, 256); for (let k = 0; k < 10; k++) { x.fillStyle = 'rgba(0,0,0,' + (0.2 + r() * 0.12) + ')'; x.fillRect(k * 25.6, 0, 3, 256); x.fillStyle = 'rgba(255,255,255,' + (0.05 + r() * 0.05) + ')'; x.fillRect(k * 25.6 + 3, 0, 2, 256); } for (let i = 0; i < 4000; i++) { x.fillStyle = 'rgba(0,0,0,' + (0.03 + r() * 0.06) + ')'; x.fillRect(r() * 256, r() * 256, 1, 2 + r() * 6); } return c; })();
-  const DECK_WOOD = new T.MeshPhongMaterial({ map: tex(deckCanvas, true), normalMap: heightToNormal(deckCanvas, 1.5), normalScale: new T.Vector2(0.5, 0.5), shininess: 10, specular: col('#222') });
+  const DECK_WOOD = new T.MeshStandardMaterial({ map: tex(deckCanvas, true), normalMap: heightToNormal(deckCanvas, 1.5), normalScale: new T.Vector2(0.5, 0.5), roughness: 0.72, metalness: 0 });
 
 
   (function lakeShore() {
@@ -1754,9 +1809,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   const train = [];
   for (let c = 0; c < 4; c++) {
     const g = new T.Group();
-    const bodyM = new T.Mesh(UNIT.box, new T.MeshLambertMaterial({ color: col('#e3e6e9') })); bodyM.scale.set(3.2, 3.3, 20.6); g.add(bodyM);
-    const win = new T.Mesh(UNIT.box, new T.MeshLambertMaterial({ color: col('#26303d') })); win.scale.set(3.25, 0.8, 18.4); win.position.y = 0.5; g.add(win);
-    const stripe = new T.Mesh(UNIT.box, new T.MeshLambertMaterial({ color: col('#2f7fc1') })); stripe.scale.set(3.26, 0.3, 20.6); stripe.position.y = -0.6; g.add(stripe);
+    const bodyM = new T.Mesh(UNIT.box, new T.MeshStandardMaterial({ color: col('#e3e6e9'), roughness: 0.38, metalness: 0.35 })); bodyM.scale.set(3.2, 3.3, 20.6); g.add(bodyM);
+    const win = new T.Mesh(UNIT.box, new T.MeshStandardMaterial({ color: col('#26303d'), roughness: 0.12, metalness: 0.42 })); win.scale.set(3.25, 0.8, 18.4); win.position.y = 0.5; g.add(win);
+    const stripe = new T.Mesh(UNIT.box, new T.MeshStandardMaterial({ color: col('#2f7fc1'), roughness: 0.34, metalness: 0.42 })); stripe.scale.set(3.26, 0.3, 20.6); stripe.position.y = -0.6; g.add(stripe);
     g.traverse(o => { if (o.isMesh) o.castShadow = true; });
     scene.add(g); train.push(g);
   }
@@ -1772,7 +1827,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   const GN = 80, GSZ = 8, groundGeo = new T.PlaneGeometry(GN * GSZ, GN * GSZ, GN, GN);
   groundGeo.rotateX(-Math.PI / 2);
   const groundTex = tex(walkMat.map.image, true);
-  const ground = new T.Mesh(groundGeo, new T.MeshLambertMaterial({ map: groundTex, color: col('#d8d3cc') }));
+  const ground = new T.Mesh(groundGeo, new T.MeshStandardMaterial({ map: groundTex, color: col('#d8d3cc'), roughness: 0.95, metalness: 0 }));
   ground.receiveShadow = true; scene.add(ground);
   let groundAt = null;
   function updateGround(px, pz) {
@@ -1816,24 +1871,26 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   let riderSkinned = false, riderFallback = null;
 
   function fallbackBike() {
-    const g = new T.Group(), blue = lam('#1f4fd6'), white = lam('#f2f2f2'), dark = lam('#1a1a1d');
+    const g = new T.Group(), blue = new T.MeshStandardMaterial({ color: col('#1f4fd6'), metalness: 0.42, roughness: 0.3 }), white = new T.MeshStandardMaterial({ color: col('#f2f2f2'), metalness: 0.35, roughness: 0.32 }), dark = new T.MeshStandardMaterial({ color: col('#1a1a1d'), metalness: 0, roughness: 0.9 });
     for (const z of [0, -WB]) { const w = new T.Mesh(new T.TorusGeometry(R - 0.07, 0.075, 8, 22), dark); w.rotation.y = Math.PI / 2; w.position.z = z; g.add(w); }
     const add = (m, x, y, z, w, h, d, rx) => { const o = new T.Mesh(UNIT.box, m); o.position.set(x, y, z); o.scale.set(w, h, d); o.rotation.x = rx || 0; g.add(o); };
     add(white, 0, 0.5, -0.45, 0.3, 0.2, 0.9); add(blue, 0, 0.55, -0.95, 0.36, 0.25, 0.5); add(dark, 0, 0.62, -0.35, 0.28, 0.08, 0.6);
-    add(lam('#bfc2c9'), 0, 0.42, -1.3, 0.08, 0.95, 0.08, 0.34); add(dark, 0, 0.92, -1.13, 0.78, 0.05, 0.05); add(blue, 0, 0.1, -WB, 0.18, 0.05, 0.6);
+    add(new T.MeshStandardMaterial({ color: col('#bfc2c9'), metalness: 0.9, roughness: 0.2 }), 0, 0.42, -1.3, 0.08, 0.95, 0.08, 0.34); add(dark, 0, 0.92, -1.13, 0.78, 0.05, 0.05); add(blue, 0, 0.1, -WB, 0.18, 0.05, 0.6);
     return g;
   }
   function fallbackRider() {
     const g = new T.Group();
     const add = (m, x, y, z, w, h, d, rx) => { const o = new T.Mesh(UNIT.box, m); o.position.set(x, y, z); o.scale.set(w, h, d); o.rotation.x = rx || 0; g.add(o); };
-    add(lam('#111'), 0, 0.72, -0.5, 0.36, 0.16, 0.5); add(lam('#151515'), 0, 1.15, -0.55, 0.44, 0.62, 0.26, -0.35);
-    const head = new T.Mesh(UNIT.sph, lam('#d61f1f')); head.position.set(0, 1.58, -0.72); head.scale.setScalar(0.17); g.add(head);
-    for (const dx of [-0.2, 0.2]) { add(lam('#111'), dx, 0.45, -0.78, 0.12, 0.42, 0.14); add(lam('#f2f2f2'), dx, 0.22, -0.84, 0.13, 0.1, 0.25); }
+    const cloth = new T.MeshStandardMaterial({ color: col('#111'), roughness: 0.86, metalness: 0 }), helmet = new T.MeshStandardMaterial({ color: col('#d61f1f'), roughness: 0.28, metalness: 0.15 }), shoe = new T.MeshStandardMaterial({ color: col('#f2f2f2'), roughness: 0.78, metalness: 0 });
+    add(cloth, 0, 0.72, -0.5, 0.36, 0.16, 0.5); add(cloth, 0, 1.15, -0.55, 0.44, 0.62, 0.26, -0.35);
+    const head = new T.Mesh(UNIT.sph, helmet); head.position.set(0, 1.58, -0.72); head.scale.setScalar(0.17); g.add(head);
+    for (const dx of [-0.2, 0.2]) { add(cloth, dx, 0.45, -0.78, 0.12, 0.42, 0.14); add(shoe, dx, 0.22, -0.84, 0.13, 0.1, 0.25); }
     return g;
   }
 
   try {
     const [gb, gr] = await Promise.all([Promise.resolve({ scene: new T.Group() }), load('models/rider2.gltf.json')]);
+    upgradeModelMaterials(gr.scene, 'rider');
     // bike: modelled front toward -x, wheel radius 0.30, rear axle at (0.65, -0.25)
     const s = 1.12, m = gb.scene; m.rotation.y = -Math.PI / 2; m.scale.setScalar(s);
     const holder = new T.Group(); holder.add(m); holder.position.set(0, 0.25 * s, -0.65 * s);
@@ -1910,8 +1967,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   const grom = (function buildGrom() {
     const RX = -0.59, FX = 0.61, WZ = 0.245;
     const P = (x, y, z) => new T.Vector3(y, z - WZ, -(x - RX));
-    const std = (h, met, rough, env) => new T.MeshStandardMaterial({ color: col(h), metalness: met, roughness: rough, envMap: envRT.texture, envMapIntensity: env || 1.4 });
-    const coat = (h, met, rough, cc, env) => new T.MeshPhysicalMaterial({ color: col(h), metalness: met, roughness: rough, clearcoat: cc, clearcoatRoughness: 0.04, envMap: envRT.texture, envMapIntensity: env || 1.5 });
+    const std = (h, met, rough, env) => new T.MeshStandardMaterial({ color: col(h), metalness: met, roughness: rough, envMapIntensity: env || 1.4 });
+    const coat = (h, met, rough, cc, env) => new T.MeshPhysicalMaterial({ color: col(h), metalness: met, roughness: rough, clearcoat: cc, clearcoatRoughness: 0.04, envMapIntensity: env || 1.5 });
     // tyre tread: chevron grooves on the crown, smooth shoulders, as a normal map
     const treadN = (function () { const [c, x] = makeCanvas(1024, 128); x.fillStyle = '#ffffff'; x.fillRect(0, 0, 1024, 128); x.strokeStyle = '#202020'; x.lineWidth = 5; x.lineCap = 'round';
       for (let k = 0; k < 40; k++) { const u = k * 25.6; for (const [v0, v1] of [[2, 26], [126, 102]]) { x.beginPath(); x.moveTo(u, v0); x.lineTo(u + 12, v1); x.stroke(); } }
@@ -1924,7 +1981,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       red: coat('#d3191c', 0.3, 0.24, 1, 1.6), black: coat('#141518', 0.15, 0.3, 0.6, 1.1), gold: std('#dca443', 0.9, 0.2, 1.8),
       silver: std('#c8cdd3', 0.9, 0.26, 1.8), steel: std('#5d636b', 0.85, 0.36, 1.3),
       dark: std('#1d1e22', 0.1, 0.7, 0.6), rubber: new T.MeshStandardMaterial({ color: col('#19191b'), roughness: 0.88, metalness: 0, normalMap: treadN, normalScale: new T.Vector2(1.4, 1.4) }),
-      carbon: new T.MeshPhysicalMaterial({ map: carbonMap, color: col('#ffffff'), metalness: 0.3, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.03, envMap: envRT.texture, envMapIntensity: 1.4 }),
+      carbon: new T.MeshPhysicalMaterial({ map: carbonMap, color: col('#ffffff'), metalness: 0.3, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.4 }),
       seat: new T.MeshStandardMaterial({ map: seatMap, roughness: 0.7, metalness: 0 }),
       chain: std('#3b3e44', 0.8, 0.5, 1),
       lens: coat('#d8e6f2', 0.1, 0.05, 1, 2.2),
@@ -2058,8 +2115,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function ensureQuad() { return quadLoad || (quadLoad = (async function loadQuad() {
     try {
       const g = await load('models/banshee.gltf.json'), m = g.scene;
+      upgradeModelMaterials(m, 'vehicle');
       m.traverse(o => {
-        if (o.isMesh) { o.castShadow = true; if (o.material) { o.material.envMap = envRT.texture; o.material.envMapIntensity = 1.2; o.material.needsUpdate = true; } }
+        if (o.isMesh) o.castShadow = true;
         if (o.name && o.name.startsWith('wheel_')) { o.rotation.order = 'YXZ'; quad.wheels.push(o); if (o.name.startsWith('wheel_F')) quad.front.push(o); }
       });
       // model faces +z with the rear axle at (0, 0.322, -0.62): turn it to face -z and put that axle on the rig's pivot
@@ -2125,8 +2183,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function ensureGrom() { return gromLoad || (gromLoad = (async function loadGromModel() {
     try {
       const g = await load('models/grom.gltf.json'), m = g.scene, GM = 1.0; let wr = null, wf = null;
+      upgradeModelMaterials(m, 'vehicle');
       m.traverse(o => {
-        if (o.isMesh) { o.castShadow = true; if (o.material) { o.material.envMap = envRT.texture; o.material.envMapIntensity = 0.8; o.material.metalness = 0.7; o.material.needsUpdate = true; } }
+        if (o.isMesh) o.castShadow = true;
         if (o.name === 'wheel_R') wr = o; if (o.name === 'wheel_F') wf = o;
       });
       // model faces +z with the rear axle at (0, 0.265, -0.697): face -z and sit that axle on the rig's pivot
@@ -2143,8 +2202,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   (async function loadDirtModel() {
     try {
       const g = await load('models/dirtbike.gltf.json'), m = g.scene, DS = 1.15; let wr = null, wf = null;
+      upgradeModelMaterials(m, 'vehicle');
       m.traverse(o => {
-        if (o.isMesh) { o.castShadow = true; if (o.material) { o.material.envMap = envRT.texture; o.material.envMapIntensity = 0.9; o.material.metalness = 0.75; o.material.needsUpdate = true; } }
+        if (o.isMesh) o.castShadow = true;
         if (o.name === 'wheel_R') wr = o; if (o.name === 'wheel_F') wf = o;
       });
       // model faces +z with the rear axle at (0, 0.279, -0.679): face -z and sit that axle on the rig's pivot
@@ -2288,11 +2348,11 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   const car = { root: new T.Group(), body: new T.Group(), spin: [], steer: [], wheel: null };
   scene.add(car.root); car.root.add(car.body); car.root.visible = false;
   (function buildCar() {
-    const paint = new T.MeshStandardMaterial({ color: col('#5b1c9e'), metalness: 0.55, roughness: 0.26, envMap: envRT.texture, envMapIntensity: 1.6 });
-    const chrome = new T.MeshStandardMaterial({ color: col('#eef1f6'), metalness: 1, roughness: 0.1, envMap: envRT.texture, envMapIntensity: 2.2 });
-    const glass = new T.MeshStandardMaterial({ color: col('#0a1020'), metalness: 0.3, roughness: 0.04, envMap: envRT.texture, envMapIntensity: 1.8, transparent: true, opacity: 0.84 });
-    const black = new T.MeshLambertMaterial({ color: col('#111115') }), rubber = new T.MeshLambertMaterial({ color: col('#18181b') });
-    const inside = new T.MeshLambertMaterial({ color: col('#3a2620') }), dash = new T.MeshLambertMaterial({ color: col('#1c1a1d') });
+    const paint = new T.MeshStandardMaterial({ color: col('#5b1c9e'), metalness: 0.55, roughness: 0.26, envMapIntensity: 1.6 });
+    const chrome = new T.MeshStandardMaterial({ color: col('#eef1f6'), metalness: 1, roughness: 0.1, envMapIntensity: 2.2 });
+    const glass = new T.MeshStandardMaterial({ color: col('#0a1020'), metalness: 0.3, roughness: 0.04, envMapIntensity: 1.8, transparent: true, opacity: 0.84 });
+    const black = new T.MeshStandardMaterial({ color: col('#111115'), metalness: 0.12, roughness: 0.72 }), rubber = new T.MeshStandardMaterial({ color: col('#18181b'), metalness: 0, roughness: 0.92 });
+    const inside = new T.MeshStandardMaterial({ color: col('#3a2620'), metalness: 0, roughness: 0.72 }), dash = new T.MeshStandardMaterial({ color: col('#1c1a1d'), metalness: 0, roughness: 0.82 });
     car.brakeMat = new T.MeshBasicMaterial({ color: col('#6e0808') });
     const headMat = new T.MeshBasicMaterial({ color: col('#fff3d6') });
     const add = (parent, geo, m, x, y, z, sx, sy, sz, rx, ry, rz) => { const o = new T.Mesh(geo, m); o.position.set(x, y, z); o.scale.set(sx, sy, sz); o.rotation.set(rx || 0, ry || 0, rz || 0); o.castShadow = true; parent.add(o); return o; };
@@ -2411,9 +2471,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     const cab = new T.Group();
     const leather = new T.MeshStandardMaterial({ color: col('#17171a'), roughness: 0.62, metalness: 0.05 });
     const trim = new T.MeshStandardMaterial({ color: col('#26272c'), roughness: 0.5, metalness: 0.1 });
-    const soft = new T.MeshLambertMaterial({ color: col('#1c1c20') });
-    const liner = new T.MeshLambertMaterial({ color: col('#4a4a50') });
-    const alu = new T.MeshStandardMaterial({ color: col('#b8bcc4'), roughness: 0.3, metalness: 0.9, envMap: envRT.texture });
+    const soft = new T.MeshStandardMaterial({ color: col('#1c1c20'), roughness: 0.86, metalness: 0 });
+    const liner = new T.MeshStandardMaterial({ color: col('#4a4a50'), roughness: 0.92, metalness: 0 });
+    const alu = new T.MeshStandardMaterial({ color: col('#b8bcc4'), roughness: 0.3, metalness: 0.9 });
     const stitch = new T.MeshBasicMaterial({ color: col('#8a1414') });
     const add = (geo, m, x, y, z, sx, sy, sz, rx, ry, rz, parent) => { const o = new T.Mesh(geo, m); o.position.set(x, y, z); o.scale.set(sx, sy, sz); o.rotation.set(rx || 0, ry || 0, rz || 0); (parent || cab).add(o); return o; };
     const rod = (a, b, r, m) => { const A = new T.Vector3(...a), B = new T.Vector3(...b), d = B.clone().sub(A), L = d.length(), o = new T.Mesh(UNIT.cyl, m); o.position.copy(A.add(B).multiplyScalar(0.5)); o.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), d.normalize()); o.scale.set(r, L, r); cab.add(o); return o; };
@@ -2475,7 +2535,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     // pillars, roof liner, rear-view mirror, sun visors
     for (const s of [-1, 1]) { rod([s * 0.56, 0.93, -0.82], [s * 0.46, 1.3, -0.15], 0.03, trim); rod([s * 0.67, 0.98, 0.78], [s * 0.46, 1.36, 0.82], 0.035, trim); add(UNIT.box, liner, s * 0.29, 1.33, -0.1, 0.34, 0.015, 0.18, 0.15, 0, 0); }
     add(UNIT.box, liner, 0, 1.37, 0.37, 1.0, 0.02, 0.95);
-    add(UNIT.box, trim, 0, 1.3, -0.3, 0.24, 0.07, 0.02); add(UNIT.box, new T.MeshStandardMaterial({ color: col('#aab4c0'), metalness: 1, roughness: 0.05, envMap: envRT.texture }), 0, 1.3, -0.311, 0.22, 0.055, 0.004);
+    add(UNIT.box, trim, 0, 1.3, -0.3, 0.24, 0.07, 0.02); add(UNIT.box, new T.MeshStandardMaterial({ color: col('#aab4c0'), metalness: 1, roughness: 0.05 }), 0, 1.3, -0.311, 0.22, 0.055, 0.004);
     cab.traverse(o => { if (o.isMesh) o.castShadow = false; });
     return { group: cab, wheel, needles };
   }
@@ -2485,8 +2545,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function ensureG35() { return g35Load || (g35Load = (async function loadG35() {
     try {
       const g = await load('models/g35.gltf.json'), m = g.scene, CS = 2.45, wheels = [], fronts = [];
+      upgradeModelMaterials(m, 'vehicle');
       m.traverse(o => {
-        if (o.isMesh) { o.castShadow = true; if (o.material) { o.material.envMap = envRT.texture; o.material.envMapIntensity = 1.3; o.material.needsUpdate = true; } }
+        if (o.isMesh) o.castShadow = true;
         if (o.name && o.name.startsWith('wheel_')) { o.rotation.order = 'YXZ'; wheels.push(o); if (o.name.startsWith('wheel_F')) fronts.push(o); }
       });
       // model already faces -z; centre its wheelbase on the car's origin
@@ -2801,38 +2862,68 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   const fxaa = new T.ShaderPass(T.FXAAShader), gamma = new T.ShaderPass(T.GammaCorrectionShader);
   composer.addPass(renderPass); if (!LOWMEM) composer.addPass(ssao); composer.addPass(bloom); composer.addPass(fxaa); composer.addPass(gamma);
   const QL = {
-    low: { ratio: Math.min(window.devicePixelRatio || 1, 1), shadow: 0, soft: false, post: false, ao: false, env: false },
-    medium: { ratio: Math.min(window.devicePixelRatio || 1, 1), shadow: 1024, soft: false, post: true, ao: false, env: false },
-    high: { ratio: Math.min(window.devicePixelRatio || 1, 1.5), shadow: 2048, soft: true, post: true, ao: true, env: true }
+    low: { ratio: Math.min(window.devicePixelRatio || 1, 1), shadow: 0, soft: false, post: false, ao: false, env: false, sunset: ['#64556b', 42, 165], night: ['#10172a', 34, 145] },
+    medium: { ratio: Math.min(window.devicePixelRatio || 1, 1.25), shadow: 1024, soft: false, post: true, ao: false, env: true, sunset: ['#5a4c66', 55, 215], night: ['#0c1428', 46, 190] },
+    high: { ratio: Math.min(window.devicePixelRatio || 1, 2), shadow: 2048, soft: true, post: true, ao: true, env: true, sunset: ['#51435f', 70, 265], night: ['#091225', 58, 235] }
   };
-  let quality = 'low', autoQ = true;
-  try { const q = localStorage.getItem('ride-out-oakland-quality'); if (QL[q]) { quality = q; autoQ = false; } } catch (e) {}
+  const autoCeiling = LOWMEM ? ((navigator.deviceMemory || 4) <= 2 ? 'low' : 'medium') : 'high';
+  let qualityPreference = 'auto', quality = autoCeiling, nightMode = false;
+  try {
+    const q = localStorage.getItem('ride-out-oakland-quality'); if (q === 'auto' || QL[q]) qualityPreference = q;
+    nightMode = localStorage.getItem('ride-out-oakland-night') === '1';
+  } catch (e) {}
+  if (qualityPreference !== 'auto') quality = qualityPreference;
+  function applyLook(night, persist) {
+    nightMode = !!night; const mode = nightMode ? 'night' : 'sunset', L = QL[quality], f = L[mode];
+    skyMat.map = SKY[mode]; skyMat.needsUpdate = true;
+    scene.fog.color.copy(col(f[0])); scene.fog.near = f[1]; scene.fog.far = f[2]; scene.background.copy(col(f[0]));
+    scene.environment = L.env ? ENV[mode] : null;
+    hemi.color.copy(col(nightMode ? '#6376ad' : '#9bb0d0')); hemi.groundColor.copy(col(nightMode ? '#181323' : '#513039')); hemi.intensity = nightMode ? 0.48 : 0.78;
+    sun.color.copy(col(nightMode ? '#8095d1' : '#ffb36f')); sun.intensity = nightMode ? 0.34 : 1.05;
+    renderer.toneMappingExposure = nightMode ? 1.05 : 1.12;
+    for (const m of [SH.W0, SH.W1, SH.W2, SH.W3, SH_LOW.W0, SH_LOW.W1, SH_LOW.W2, SH_LOW.W3]) m.emissiveIntensity = nightMode ? 1.15 : 0.12;
+    ART_WALL.emissiveIntensity = nightMode ? 0.65 : 0.12; HOUSE_GLASS.emissiveIntensity = nightMode ? 0.48 : 0.1;
+    SH.G.color.setRGB(nightMode ? 1.45 : 0.72, nightMode ? 1.45 : 0.72, nightMode ? 1.45 : 0.72);
+    ATLAS.color.setRGB(nightMode ? 1.3 : 0.92, nightMode ? 1.3 : 0.92, nightMode ? 1.3 : 0.92); ART_LIT.color.setRGB(nightMode ? 1.25 : 0.9, nightMode ? 1.25 : 0.9, nightMode ? 1.25 : 0.9);
+    for (const m of glowPools) m.opacity = m.userData.baseOpacity * (nightMode ? 1 : 0.22);
+    bloom.strength = nightMode ? 0.82 : 0.32; bloom.radius = nightMode ? 0.58 : 0.35; bloom.enabled = L.post && nightMode;
+    const b = document.getElementById('nightBtn'); b.textContent = nightMode ? 'Night' : 'Sunset'; b.setAttribute('aria-pressed', String(nightMode));
+    if (persist) try { localStorage.setItem('ride-out-oakland-night', nightMode ? '1' : '0'); } catch (e) {}
+  }
   function applyQuality(q) {
     quality = q; const L = QL[q];
+    lowCityMaterials = q === 'low';
     renderer.setPixelRatio(L.ratio);
     renderer.shadowMap.type = L.soft ? T.PCFSoftShadowMap : T.PCFShadowMap;
     renderer.shadowMap.enabled = L.shadow > 0; sun.castShadow = L.shadow > 0;
     if (L.shadow && sun.shadow.mapSize.x !== L.shadow) { sun.shadow.mapSize.set(L.shadow, L.shadow); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
-    scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
+    scene.traverse(o => {
+      if (!o.material) return;
+      const swap = m => lowCityMaterials && m.userData && m.userData.lowPeer ? m.userData.lowPeer : !lowCityMaterials && m.userData && m.userData.pbrPeer ? m.userData.pbrPeer : m;
+      o.material = Array.isArray(o.material) ? o.material.map(swap) : swap(o.material); if (Array.isArray(o.material)) o.material.forEach(m => { m.needsUpdate = true; }); else o.material.needsUpdate = true;
+    });
     renderer.shadowMap.needsUpdate = true;
-    const useAO = L.ao && !LOWMEM; renderPass.enabled = !useAO; ssao.enabled = useAO; bloom.enabled = L.post; fxaa.enabled = L.post; gamma.enabled = L.post;
-    plainMat.envMap = L.env ? envRT.texture : null; WATER.envMap = L.env ? envRT.texture : null; plainMat.needsUpdate = true; WATER.needsUpdate = true;
-    for (const btn of document.querySelectorAll('.qbtn')) btn.setAttribute('aria-pressed', String(btn.dataset.q === q));
-    try { localStorage.setItem('ride-out-oakland-quality', q); } catch (e) {}
+    const useAO = L.ao && !LOWMEM; renderPass.enabled = !useAO; ssao.enabled = useAO; fxaa.enabled = L.post; gamma.enabled = L.post;
+    applyLook(nightMode, false);
     resize();
   }
-  for (const btn of document.querySelectorAll('.qbtn')) btn.addEventListener('click', () => { autoQ = false; applyQuality(btn.dataset.q); btn.blur(); });
+  function selectQuality(pref, persist) {
+    qualityPreference = pref; applyQuality(pref === 'auto' ? autoCeiling : pref);
+    for (const btn of document.querySelectorAll('.qbtn')) btn.setAttribute('aria-pressed', String(btn.dataset.q === pref));
+    if (persist) try { localStorage.setItem('ride-out-oakland-quality', pref); } catch (e) {}
+  }
+  for (const btn of document.querySelectorAll('.qbtn')) btn.addEventListener('click', () => { selectQuality(btn.dataset.q, true); btn.blur(); });
+  document.getElementById('nightBtn').addEventListener('click', e => { applyLook(!nightMode, true); e.currentTarget.blur(); });
   // auto quality: step up while riding smoothly, step down when the frame rate drops
   let fpsAcc = 0, fpsN = 0, fpsT = 0;
   function autoQuality(dt) {
-    if (!autoQ || S.state !== 'ride') return;
+    if (qualityPreference !== 'auto' || S.state !== 'ride') return;
     fpsAcc += dt; fpsN++; fpsT += dt;
     if (fpsT < 4) return;
     const fps = fpsN / fpsAcc; fpsAcc = fpsN = fpsT = 0;
-    const order = ['low', 'medium', 'high'], i = order.indexOf(quality);
+    const order = ['low', 'medium', 'high'], i = order.indexOf(quality), ceiling = order.indexOf(autoCeiling);
     if (fps < 24 && i > 0) applyQuality(order[i - 1]);
-    else if (fps > 55 && i < 2) applyQuality(order[i + 1]);
-    try { localStorage.removeItem('ride-out-oakland-quality'); } catch (e) {}
+    else if (fps > 55 && i < ceiling) applyQuality(order[i + 1]);
   }
   function resize() {
     const w = innerWidth, h = innerHeight, pr = renderer.getPixelRatio();
@@ -2840,17 +2931,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     composer.setSize(w, h); ssao.setSize(w, h); bloom.setSize(w, h);
     fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr));
   }
-  addEventListener('resize', resize); applyQuality(quality);
-  let envFrame = 0;
-  function updateEnv() {
-    if (!QL[quality].env || (envFrame++ % 24)) return;
-    envCam.position.set(S.x, S.y + 1.6, S.z);
-    const bv = bike.root.visible, cv = car.root.visible, sv = shadow.visible;
-    bike.root.visible = false; car.root.visible = false; shadow.visible = false;
-    const tm = renderer.toneMapping; renderer.toneMapping = T.NoToneMapping;
-    envCam.update(renderer, scene);
-    renderer.toneMapping = tm; bike.root.visible = bv; car.root.visible = cv; shadow.visible = sv;
-  }
+  addEventListener('resize', resize); selectQuality(qualityPreference, false); applyLook(nightMode, false);
 
   ensureCells(S.x, S.z, 999);
   { const rz = raisedAt(S.x, S.z); S.y = S.gy = rz !== null ? rz : H(S.x, S.z); } camPos.set(S.x - 4, S.y + 1.9, S.z + 4);
@@ -2863,7 +2944,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     requestAnimationFrame(loop);
     const dt = Math.min(0.1, (now - last) / 1000); last = now;
     if (document.hidden || S.paused) return;
-    update(dt); updateEnv(); autoQuality(dt);
+    update(dt); autoQuality(dt);
     if (QL[quality].post) composer.render(); else renderer.render(scene, camera);
     window.__perf = renderer.info.render;
   }
