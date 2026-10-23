@@ -104,7 +104,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 <div id="panel" class="panel">
   <div class="card">
     <h1 id="ptitle">Real Outside <span>Boyz</span></h1>
-    <p id="psub">Real Oakland streets with hills, the 880 and BART overhead. You start in the Sailboat House lot on Lake Merritt. Press F to switch rides: two dirt bikes, Grom, Banshee quad and car. Turn Online on to ride with others; share a crew code to ride with just your friends.</p>
+    <p id="psub">Real Oakland streets with hills, the 880 and BART overhead. You start in the Sailboat House lot on Lake Merritt. Press F to switch rides: dirt bike, Grom, Banshee quad and car. Turn Online on to ride with others; share a crew code to ride with just your friends.</p>
     <div id="keys" class="keys">
       <div><kbd>W</kbd><span>Gas</span></div>
       <div><kbd>S</kbd><kbd>E</kbd><span>Brake</span></div>
@@ -2376,7 +2376,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     for (const [lx, lz] of CAR_PTS) { const b = blocked(x + lx * c + lz * s, z - lx * s + lz * c, -0.6); if (b === 'b' || (b === 'w' && raisedAt(x, z) === null)) return b; }
     return null;
   }
-  const RIDES = ['bike', 'bike2', 'grom', 'quad', 'car'], RIDE_LABEL = { bike: 'Bike', bike2: 'Bike 2', grom: 'Grom', quad: 'Quad', car: 'Car' };
+  const RIDES = ['bike', 'grom', 'quad', 'car'], RIDE_LABEL = { bike: 'Bike', bike2: 'Bike 2', grom: 'Grom', quad: 'Quad', car: 'Car' };
   const curRide = () => S.mode === 'bike' && S.bv ? 'bike2' : S.mode;
   const nextRide = m => { let n = RIDES[(RIDES.indexOf(m) + 1) % RIDES.length]; for (let i = 0; i < 2; i++) if ((n === 'quad' && quad.failed) || (n === 'bike2' && bike2.failed)) n = RIDES[(RIDES.indexOf(n) + 1) % RIDES.length]; return n; };
   // second dirt bike: the blue bike from its own model, ridden with the same bike physics
