@@ -330,11 +330,12 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function streetSignMat(name) { return streetSign.get(name); }
   const ATLAS = new T.MeshBasicMaterial({ map: tex(atlasC), side: T.DoubleSide });
   // ---------- street art: graffiti pieces, throw-ups, tag walls and billboard ads, all on their own atlas
-  const ART = { W: 4096, H: 4096, x: 0, y: 0, rowH: 0 };
+  const LOWMEM = matchMedia('(pointer: coarse)').matches || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  const ART = { W: LOWMEM ? 2048 : 4096, H: LOWMEM ? 2048 : 4096, x: 0, y: 0, rowH: 0 }, ARTK = ART.W / 4096;
   const [artC, artX] = makeCanvas(ART.W, ART.H);
   function artSlot(w, h) { if (ART.x + w > ART.W) { ART.x = 0; ART.y += ART.rowH + 6; ART.rowH = 0; } const r = { x: ART.x, y: ART.y, w, h }; ART.x += w + 6; ART.rowH = Math.max(ART.rowH, h); return r; }
   function artTok(r, kind) { return { userData: { art: kind, atlas: [(r.x + 1) / ART.W, 1 - (r.y + r.h - 1) / ART.H, (r.x + r.w - 1) / ART.W, 1 - (r.y + 1) / ART.H] }, ar: r.w / r.h }; }
-  function inSlot(w, h, draw) { const r = artSlot(w, h); artX.save(); artX.beginPath(); artX.rect(r.x, r.y, w, h); artX.clip(); artX.translate(r.x, r.y); draw(artX, w, h); artX.restore(); return r; }
+  function inSlot(w, h, draw) { const r = artSlot(Math.ceil(w * ARTK), Math.ceil(h * ARTK)); artX.save(); artX.beginPath(); artX.rect(r.x, r.y, r.w, r.h); artX.clip(); artX.translate(r.x, r.y); artX.scale(ARTK, ARTK); draw(artX, w, h); artX.restore(); return r; }
   const GFONT = "'Sedgwick Ave Display', 'Permanent Marker', Impact, sans-serif";
   const TFONT = "'Permanent Marker', 'Sedgwick Ave Display', cursive";
   const BFONT = "700 {s}px Fredoka, 'Arial Rounded MT Bold', sans-serif";
@@ -1832,7 +1833,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   }
 
   try {
-    const [gb, gr] = await Promise.all([load('models/bike.gltf.json'), load('models/rider2.gltf.json')]);
+    const [gb, gr] = await Promise.all([Promise.resolve({ scene: new T.Group() }), load('models/rider2.gltf.json')]);
     // bike: modelled front toward -x, wheel radius 0.30, rear axle at (0.65, -0.25)
     const s = 1.12, m = gb.scene; m.rotation.y = -Math.PI / 2; m.scale.setScalar(s);
     const holder = new T.Group(); holder.add(m); holder.position.set(0, 0.25 * s, -0.65 * s);
@@ -2053,7 +2054,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   // ---------- Banshee quad: the user's Rodin model, split into body + four wheels; rides in the bike rig so the rider and wheelies come along
   const QS = 0.92, QWB = 1.277 * QS;
   const quad = { root: null, wheels: [], front: [], R: 0.322 * QS, ok: false };
-  (async function loadQuad() {
+  let quadLoad = null;
+  function ensureQuad() { return quadLoad || (quadLoad = (async function loadQuad() {
     try {
       const g = await load('models/banshee.gltf.json'), m = g.scene;
       m.traverse(o => {
@@ -2065,8 +2067,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       const holder = new T.Group(); holder.add(m); holder.visible = false; bike.pitch.add(holder);
       quad.root = holder; quad.ok = true;
       if (S.mode === 'quad') setRideVisuals();
-    } catch (e) { quad.ok = false; }
-  })();
+    } catch (e) { quad.ok = false; quad.failed = true; }
+  })()); }
   // footprint around the rear axle (forward is -z): bumpers, footwells, front wheels
   const QUAD_PTS = [[-0.6, 0.28], [0.6, 0.28], [-0.62, -0.55], [0.62, -0.55], [-0.6, -1.4], [0.6, -1.4], [0, -1.45], [0, 0.3]];
   function quadBlocked(x, z, yaw) {
@@ -2119,7 +2121,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   }
 
   // ---------- the user's own Grom model (Rodin, slimmed to ~130k triangles, kickstand removed); replaces the hand-built Grom once it loads
-  (async function loadGromModel() {
+  let gromLoad = null;
+  function ensureGrom() { return gromLoad || (gromLoad = (async function loadGromModel() {
     try {
       const g = await load('models/grom.gltf.json'), m = g.scene, GM = 1.0; let wr = null, wf = null;
       m.traverse(o => {
@@ -2134,7 +2137,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       grom.lamp = new T.Object3D(); grom.seat = [0, 0.535 * GM - 0.04, -0.46 * GM];
       if (S.mode === 'grom') { setRideVisuals(); seatRider(); }
     } catch (e) {}
-  })();
+  })()); }
 
   // ---------- the user's new dirt bike (Rodin, slimmed to ~120k triangles): replaces the old dirt bike model once it loads
   (async function loadDirtModel() {
@@ -2153,7 +2156,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       if (wf) wf.rotation.order = 'YXZ';
       bike.dw = { rear: wr, front: wf, R: 0.279 * DS }; bike.R0 = 0.279 * DS; bike.seat = [0, 0.54 * DS - 0.04, -0.4 * DS];
       setRideVisuals(); if (S.mode === 'bike') seatRider();
-    } catch (e) {}
+    } catch (e) { const fb = fallbackBike(); if (bike.model) bike.pitch.remove(bike.model); bike.pitch.add(fb); bike.model = fb; }
   })();
 
   // ---------- state
@@ -2347,7 +2350,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     return null;
   }
   const RIDES = ['bike', 'grom', 'quad', 'car'], RIDE_LABEL = { bike: 'Bike', grom: 'Grom', quad: 'Quad', car: 'Car' };
-  const nextRide = m => { let n = RIDES[(RIDES.indexOf(m) + 1) % RIDES.length]; if (n === 'quad' && !quad.ok) n = RIDES[(RIDES.indexOf(n) + 1) % RIDES.length]; return n; };
+  const nextRide = m => { let n = RIDES[(RIDES.indexOf(m) + 1) % RIDES.length]; if (n === 'quad' && quad.failed) n = RIDES[(RIDES.indexOf(n) + 1) % RIDES.length]; return n; };
+  function rideNote(t) { trickToast(t, ''); TR.hideAt = S.t + 2.2; }
   function setRideVisuals() {
     const m = S.mode;
     car.root.visible = m === 'car'; bike.root.visible = m !== 'car';
@@ -2362,6 +2366,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function toggleVehicle() {
     if (S.state !== 'ride') return;
     const next = nextRide(S.mode), toCar = next === 'car';
+    if (next === 'quad' && !quad.ok) { const from = S.mode; rideNote('Loading Banshee…'); ensureQuad().then(() => { if (quad.ok && S.mode === from && S.state === 'ride') toggleVehicle(); else if (!quad.ok) rideNote("Banshee didn't load"); }); return; }
+    if (next === 'grom') ensureGrom(); if (toCar) ensureG35();
     if (toCar && carBlocked(S.x, S.z, S.yaw)) { const nr = nearestRoad(S.x, S.z); if (nr) { S.x = nr.qx; S.z = nr.qz; S.yaw = Math.atan2(-nr.ux, -nr.uz); } }
     S.mode = next;
     const f = forward(S.yaw); S.vx = f.x * S.v; S.vz = f.z * S.v; S.vr = 0;
@@ -2475,7 +2481,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   }
   // ---------- the user's G35 (Rodin, green texture specks painted out): replaces the hand-built sedan once it loads;
   // the sedan's headlight and tail lights stay so the scene's light count never changes
-  (async function loadG35() {
+  let g35Load = null;
+  function ensureG35() { return g35Load || (g35Load = (async function loadG35() {
     try {
       const g = await load('models/g35.gltf.json'), m = g.scene, CS = 2.45, wheels = [], fronts = [];
       m.traverse(o => {
@@ -2488,7 +2495,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       car.body.add(m); car.spin = wheels; car.steer = fronts; car.R = 0.143 * CS; car.fp = [-0.36, 1.12, 0.2];
       const cb = buildCabin(); car.body.add(cb.group); car.wheel = cb.wheel; car.needles = cb.needles;
     } catch (e) {}
-  })();
+  })()); }
   function poseCar(dt) {
     const f = forward(S.yaw), half = CWB / 2;
     car.root.position.set(S.x, S.y, S.z); car.root.rotation.order = 'YXZ'; car.root.rotation.y = S.yaw;
@@ -2789,10 +2796,10 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   // ---------- quality levels and post-processing
   const composer = new T.EffectComposer(renderer);
   const renderPass = new T.RenderPass(scene, camera);
-  const ssao = new T.SSAOPass(scene, camera, innerWidth, innerHeight); ssao.kernelRadius = 6; ssao.minDistance = 0.002; ssao.maxDistance = 0.09;
+  const ssao = LOWMEM ? { enabled: false, setSize() {} } : new T.SSAOPass(scene, camera, innerWidth, innerHeight); if (!LOWMEM) { ssao.kernelRadius = 6; ssao.minDistance = 0.002; ssao.maxDistance = 0.09; }
   const bloom = new T.UnrealBloomPass(new T.Vector2(innerWidth, innerHeight), 0.75, 0.55, 0.62);
   const fxaa = new T.ShaderPass(T.FXAAShader), gamma = new T.ShaderPass(T.GammaCorrectionShader);
-  composer.addPass(renderPass); composer.addPass(ssao); composer.addPass(bloom); composer.addPass(fxaa); composer.addPass(gamma);
+  composer.addPass(renderPass); if (!LOWMEM) composer.addPass(ssao); composer.addPass(bloom); composer.addPass(fxaa); composer.addPass(gamma);
   const QL = {
     low: { ratio: Math.min(window.devicePixelRatio || 1, 1), shadow: 0, soft: false, post: false, ao: false, env: false },
     medium: { ratio: Math.min(window.devicePixelRatio || 1, 1), shadow: 1024, soft: false, post: true, ao: false, env: false },
@@ -2808,7 +2815,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     if (L.shadow && sun.shadow.mapSize.x !== L.shadow) { sun.shadow.mapSize.set(L.shadow, L.shadow); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
     scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
     renderer.shadowMap.needsUpdate = true;
-    renderPass.enabled = !L.ao; ssao.enabled = L.ao; bloom.enabled = L.post; fxaa.enabled = L.post; gamma.enabled = L.post;
+    const useAO = L.ao && !LOWMEM; renderPass.enabled = !useAO; ssao.enabled = useAO; bloom.enabled = L.post; fxaa.enabled = L.post; gamma.enabled = L.post;
     plainMat.envMap = L.env ? envRT.texture : null; WATER.envMap = L.env ? envRT.texture : null; plainMat.needsUpdate = true; WATER.needsUpdate = true;
     for (const btn of document.querySelectorAll('.qbtn')) btn.setAttribute('aria-pressed', String(btn.dataset.q === q));
     try { localStorage.setItem('ride-out-oakland-quality', q); } catch (e) {}
