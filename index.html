@@ -47,6 +47,10 @@ body{margin:0;background:#0b0f1e;color:var(--ink);font-family:var(--round);overf
 .card{width:min(420px,100%);background:var(--shade);border:1px solid var(--line);border-radius:16px;padding:22px;display:grid;gap:12px;text-align:center;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 .card h1{margin:0;font-family:var(--display);font-weight:400;font-size:clamp(30px,7vw,44px);line-height:1;text-wrap:balance;color:#fff;text-shadow:0 3px 0 rgba(0,0,0,.25)}
 .card h1 span{color:var(--gold)}
+/* phones: no keyboard list, and the menu scrolls/compacts so Ride stays reachable in landscape */
+.panel{overflow-y:auto;-webkit-overflow-scrolling:touch}
+@media (pointer:coarse){#keys{display:none}}
+@media (max-height:520px){.card{gap:7px;padding:14px 18px}.card h1{font-size:30px}.card p{font-size:13.5px}.card .credit{display:none}.panel{place-items:start center}}
 .card p{margin:0;font-size:16px;line-height:1.35;color:rgba(255,255,255,.85)}
 .keys{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 14px;text-align:left;font-size:15px}
 .keys div{display:flex;gap:6px;align-items:center;min-width:0}
@@ -2057,11 +2061,19 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   let quadLoad = null;
   function ensureQuad() { return quadLoad || (quadLoad = (async function loadQuad() {
     try {
-      const g = await load('models/banshee.gltf.json'), m = g.scene;
+      const g = await load(LOWMEM ? 'models/banshee.gltf.json' : 'models/banshee_hd.gltf.json'), m = g.scene;
       m.traverse(o => {
         if (o.isMesh) { o.castShadow = true; if (o.material) { o.material.envMap = envRT.texture; o.material.envMapIntensity = 1.2; o.material.needsUpdate = true; } }
         if (o.name && o.name.startsWith('wheel_')) { o.rotation.order = 'YXZ'; quad.wheels.push(o); if (o.name.startsWith('wheel_F')) quad.front.push(o); }
       });
+      // the scanned tyres have gaps in the tread and sidewalls: a dark rubber core behind them closes the see-through holes
+      const coreMat = new T.MeshStandardMaterial({ color: col('#0a0a0b'), roughness: 0.95, side: T.DoubleSide });
+      for (const w of quad.wheels) {
+        if (!w.isMesh) continue;
+        w.geometry.computeBoundingBox(); const bb = w.geometry.boundingBox, R = Math.max(bb.max.y, -bb.min.y, bb.max.z, -bb.min.z), wd = bb.max.x - bb.min.x, cx = (bb.max.x + bb.min.x) / 2;
+        const core = new T.Mesh(new T.CylinderGeometry(R * 0.86, R * 0.86, wd * 0.8, 32, 1, true), coreMat); core.rotation.z = Math.PI / 2; core.position.x = cx; w.add(core);
+        for (const sd of [-1, 1]) { const ring = new T.Mesh(new T.RingGeometry(R * 0.7, R * 0.86, 32), coreMat); ring.rotation.y = Math.PI / 2; ring.position.x = cx + sd * wd * 0.36; w.add(ring); }
+      }
       // model faces +z with the rear axle at (0, 0.322, -0.62): turn it to face -z and put that axle on the rig's pivot
       m.rotation.y = Math.PI; m.scale.setScalar(QS); m.position.set(0, -0.322 * QS, -0.62 * QS);
       const holder = new T.Group(); holder.add(m); holder.visible = false; bike.pitch.add(holder);
