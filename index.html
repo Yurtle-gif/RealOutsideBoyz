@@ -951,6 +951,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     return best;
   }
   function nearestRoad(x, z) { const n = nearestWay(x, z, 60); return n ? { d: n.d, qx: n.qx, qz: n.qz, ux: n.ux, uz: n.uz, w: n.w.w, way: n.w, c: n.c } : null; }
+  // real heights from OSM (height / building:levels), baked in models/oakland-buildings.json
+  const BH = await fetch('models/oakland-buildings.json').then(r => r.json()).catch(() => ({ heights: {} }));
+  for (const b of RD.blds) { const h = BH.heights[b.id]; if (h) b.h = h; }
   for (const b of RD.blds) {
     const r = rng(b.id);
     if (!b.h) {
@@ -960,7 +963,11 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       else if (t === 'garage' || t === 'garages' || t === 'shed' || t === 'roof' || t === 'carport') b.h = 2.8 + r() * 0.6;
       else if (t === 'industrial' || t === 'warehouse') b.h = 7 + r() * 4;
       else if (t === 'retail' || t === 'commercial' || t === 'office') b.h = dd < 900 ? 10 + 60 * Math.exp(-dd / 330) * r() : 5 + r() * 4;
-      else b.h = dd < 1000 ? Math.min(125, r() * 14 + 8 + 85 * Math.exp(-dd / 330) * r() * 1.2) : 4.5 + r() * 5;
+      else {
+        // untagged: size-based estimate (small lots stay low; only big downtown footprints get tall)
+        const area = Math.abs(polyArea(b.pts));
+        b.h = area < 120 ? 4.5 + r() * 2 : area < 400 ? 6 + r() * 4 : dd < 900 && area > 1200 ? Math.min(90, 14 + 50 * Math.exp(-dd / 330) * r()) : 8 + r() * 6;
+      }
     }
     b.tall = b.h > 22;
     b.shopEdge = -1;
