@@ -751,6 +751,13 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function rectCollider(x, z, ry, w, l) { addCollider(rectPts(x, z, ry, w, l), 'b'); }
 
   // ---------- ways: direction-normalised, lane layout, chainage, miter normals
+  // drivable road surfaces by grid cell, so poles and signs can be kept off the lanes
+  const RG = 24, RGRID = new Map();
+  function onRoad(x, z, m) {
+    const a = RGRID.get(Math.floor(x / RG) + ',' + Math.floor(z / RG)); if (!a) return false;
+    for (const [x1, z1, x2, z2, hw] of a) { const dx = x2 - x1, dz = z2 - z1, L2 = dx * dx + dz * dz || 1, s = Math.max(0, Math.min(1, ((x - x1) * dx + (z - z1) * dz) / L2)); if (Math.hypot(x - x1 - dx * s, z - z1 - dz * s) < hw + m) return true; }
+    return false;
+  }
   const MAJORC = new Set(['motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link']);
   const CENTRE_YELLOW = new Set(['primary', 'secondary', 'tertiary', 'trunk', 'primary_link', 'secondary_link', 'tertiary_link']);
   for (const w of RD.ways) {
@@ -851,6 +858,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     for (const [g0, g1] of gaps) { if (g0 - c0 > 0.4) w.pieces.push([c0, g0]); c0 = Math.max(c0, g1); }
     if (w.len - c0 > 0.4) w.pieces.push([c0, w.len]);
     for (const [c0, c1] of w.pieces) { const m = posAt(w, (c0 + c1) / 2, 0); bucketAt(m[0], m[1]).pieces.push([wi, c0, c1]); }
+    if (!w.ele && w.c !== 'pedestrian') for (let k = 0; k + 3 < w.pts.length; k += 2) { const x1 = w.pts[k], z1 = w.pts[k + 1], x2 = w.pts[k + 2], z2 = w.pts[k + 3], hw = w.w / 2; for (let gx = Math.floor((Math.min(x1, x2) - hw) / RG); gx <= Math.floor((Math.max(x1, x2) + hw) / RG); gx++) for (let gz = Math.floor((Math.min(z1, z2) - hw) / RG); gz <= Math.floor((Math.max(z1, z2) + hw) / RG); gz++) { const kk = gx + ',' + gz; let a = RGRID.get(kk); if (!a) RGRID.set(kk, a = []); a.push([x1, z1, x2, z2, hw]); } }
   });
   for (const nd of RD.nodes) bucketAt(nd.x, nd.z).jn.push(nd);
   const nodeChain = (nd, wi) => { const w = RD.ways[wi], k = w.nids.indexOf(nd.id); return k >= 0 ? w.cum[k] : null; };
@@ -1033,7 +1041,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   // elevated freeway columns (from the project's motorway export) and BART
   MAP.freeways.forEach(([w, p], fi) => {
     for (let k = 0; k + 3 < p.length; k += 2) bucketAt((p[k] + p[k + 2]) / 2, (p[k + 1] + p[k + 3]) / 2).fwy.push([fi, k]);
-    alongPolyline(p, 32, (x, z, ux, uz) => { bucketAt(x, z).fcol.push([x, z, ux, uz, w]); { const hh = hash(Math.round(x), Math.round(z)); if (hh % 4 === 0) { const s = (hh >> 3) & 1 ? 1 : -1, off = w / 2 + 6, bx = x - uz * off * s, bz = z + ux * off * s; bucketAt(bx, bz).fbb.push([bx, bz, ux, uz]); rectCollider(bx, bz, Math.atan2(ux, uz), 0.9, 0.9); } } const ry = Math.atan2(ux, uz); for (const o of (w > 14 ? [w / 4, -w / 4] : [0])) rectCollider(x - uz * o, z + ux * o, ry, 1.6, 1.6); });
+    alongPolyline(p, 32, (x, z, ux, uz) => { bucketAt(x, z).fcol.push([x, z, ux, uz, w]); { const hh = hash(Math.round(x), Math.round(z)); if (hh % 4 === 0) { const s = (hh >> 3) & 1 ? 1 : -1, off = w / 2 + 6, bx = x - uz * off * s, bz = z + ux * off * s; if (!onRoad(bx, bz, 0.8)) { bucketAt(bx, bz).fbb.push([bx, bz, ux, uz]); rectCollider(bx, bz, Math.atan2(ux, uz), 0.9, 0.9); } } } const ry = Math.atan2(ux, uz); for (const o of (w > 14 ? [w / 4, -w / 4] : [0])) rectCollider(x - uz * o, z + ux * o, ry, 1.6, 1.6); });
   });
   const BP = MAP.bart;
   for (let k = 0; k + 3 < BP.length; k += 2) bucketAt((BP[k] + BP[k + 2]) / 2, (BP[k + 1] + BP[k + 3]) / 2).bart.push(k);
@@ -1079,7 +1087,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
         if (rr() < 0.7) bucketAt(p[0], p[1]).trees.push([p[0], p[1], palmy && rr() < 0.5 ? 1 : 0]);
       }
       let flip = rr() < 0.5 ? 1 : -1;
-      for (let c = c0 + 14; c < c1 - 10; c += 32) { const side = flip; flip = -flip; const p = posAt(w, c, side * (w.w / 2 + 0.6)); if (blocked(p[0], p[1])) continue; bucketAt(p[0], p[1]).lights.push([p[0], p[1], p[3] * side, -p[2] * side]); }
+      for (let c = c0 + 14; c < c1 - 10; c += 32) { const side = flip; flip = -flip; const p = posAt(w, c, side * (w.w / 2 + 0.6)); if (blocked(p[0], p[1]) || onRoad(p[0], p[1], 0.3)) continue; bucketAt(p[0], p[1]).lights.push([p[0], p[1], p[3] * side, -p[2] * side]); }
     }
   });
 
@@ -1199,12 +1207,15 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     }
     for (const sx of [-cw / 2 + 1.2, cw / 2 - 1.2]) for (const sz of [-cd / 2 + 1.2, cd / 2 - 1.2]) addCollider(rectPts(cx + fx * sx + rx * sz, cz + fz * sx + rz * sz, ry, 0.5, 0.5), 'b');
     // price sign on a tall pole at the road-side corner
-    const sx = cx - fx * cw * 0.5 - rx * (cd / 2 + 4) * -1, sz = cz - fz * cw * 0.5 - rz * (cd / 2 + 4) * -1;
+    let sx = cx - fx * cw * 0.5 - rx * (cd / 2 + 4) * -1, sz = cz - fz * cw * 0.5 - rz * (cd / 2 + 4) * -1;
+    for (let i = 0; i < 6 && onRoad(sx, sz, 2.3); i++) { sx += (cx - sx) * 0.25; sz += (cz - sz) * 0.25; }
+    if (!onRoad(sx, sz, 2.3)) {
     b.add(UNIT.taper, lam('#3c3f45'), sx, y + 4, sz, 0.3, 8, 0.3);
     b.add(UNIT.box, lam('#1e3a8a'), sx, y + 8.6, sz, 4.2, 1.5, 0.4, 0, ry, 0); b.add(UNIT.plane, fuelSign(a.name), sx + rx * 0.22, y + 8.6, sz + rz * 0.22, 4, 1.2, 1, 0, Math.atan2(rx, rz), 0); b.add(UNIT.plane, fuelSign(a.name), sx - rx * 0.22, y + 8.6, sz - rz * 0.22, 4, 1.2, 1, 0, Math.atan2(-rx, -rz), 0);
     b.add(UNIT.box, lam('#111318'), sx, y + 7.0, sz, 4.2, 1.4, 0.36, 0, ry, 0); b.add(UNIT.plane, PRICE_SIGN, sx + rx * 0.2, y + 7.0, sz + rz * 0.2, 4, 1.1, 1, 0, Math.atan2(rx, rz), 0); b.add(UNIT.plane, PRICE_SIGN, sx - rx * 0.2, y + 7.0, sz - rz * 0.2, 4, 1.1, 1, 0, Math.atan2(-rx, -rz), 0);
     pool(b, POOL_LAMP, cx, cz, Math.max(cw, cd) * 0.9, 0.095);
     addCollider(rectPts(sx, sz, 0, 0.6, 0.6), 'b');
+    }
   }
   // ---------- tile builder
   const LW = 0.1, Y_ROAD = 0.05, Y_PAINT = 0.075, Y_WALK = 0.2;
@@ -1250,9 +1261,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
         if (w.busF.length && w.busF[0] === 0 && w.one) {
           const ln = w.lanesF[0];
           ribbon(b, CONCRETE, S, ln[1] - 0.05, ln[1] + 0.3, yr + 0.12, 0, 0); vribbon(b, CONCRETE_D, S, ln[1] + 0.3, yr, yr + 0.12, 1); vribbon(b, CONCRETE_D, S, ln[1] - 0.05, yr, yr + 0.12, -1);
-          for (let c = c0 + 3; c < c1 - 2; c += 6) { const p = posAt(w, c, ln[1] + 0.12); b.cyl(lam('#f4d03f'), p[0], yr + 0.55, p[1], 0.05, 0.9); b.box(glow('#ffffff'), p[0], yr + 0.85, p[1], 0.11, 0.12, 0.11); }
           ribbon(b, CONCRETE, S, -w.w / 2 - 0.6, -w.w / 2 + 0.05, yr + 0.15, 0, 0); vribbon(b, CONCRETE_D, S, -w.w / 2 + 0.05, yr, yr + 0.15, 1);
-          for (let c = c0 + 12; c < c1 - 6; c += 36) { const p = posAt(w, c, -w.w / 2 - 0.3); b.add(UNIT.taper, lam('#4a4d52'), p[0], yr + 5, p[1], 0.12, 10, 0.12); b.box(glow('#fff2c8'), p[0], yr + 9.9, p[1], 0.5, 0.12, 0.5); pool(b, POOL_LAMP, p[0], p[1], 7, yr + 0.085); }
+          for (let c = c0 + 12; c < c1 - 6; c += 36) { const p = posAt(w, c, -w.w / 2 - 0.3); if (onRoad(p[0], p[1], 0.2)) continue; b.add(UNIT.taper, lam('#4a4d52'), p[0], yr + 5, p[1], 0.12, 10, 0.12); b.box(glow('#fff2c8'), p[0], yr + 9.9, p[1], 0.5, 0.12, 0.5); pool(b, POOL_LAMP, p[0], p[1], 7, yr + 0.085); }
         }
       }
       // puddles in the lanes
