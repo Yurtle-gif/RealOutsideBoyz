@@ -1837,7 +1837,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   }
 
   try {
-    const [gb, gr] = await Promise.all([Promise.resolve({ scene: new T.Group() }), load('models/rider2.gltf.json')]);
+    const [gb, gr] = await Promise.all([Promise.resolve({ scene: new T.Group() }), load('models/rider3.gltf.json')]);
     // bike: modelled front toward -x, wheel radius 0.30, rear axle at (0.65, -0.25)
     const s = 1.12, m = gb.scene; m.rotation.y = -Math.PI / 2; m.scale.setScalar(s);
     const holder = new T.Group(); holder.add(m); holder.position.set(0, 0.25 * s, -0.65 * s);
@@ -2577,14 +2577,14 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   const TRICK_KEYS = { Digit1: 'seatstand', Digit2: 'kneeknock', Digit3: 'nohander', Digit4: 'footdrag' };
   const TRICK_OFF = { seatstand: [0, 0.55, 0.24], kneeknock: [0.06, 0.22, 0.08], nohander: [0, 0.03, 0], footdrag: [0, -0.02, 0.02] };
   const trickInp = { seatstand: false, kneeknock: false, nohander: false, footdrag: false };
-  const TR = { w: { seatstand: 0, kneeknock: 0, nohander: 0, footdrag: 0 }, e: {}, cur: null, blend: 0, posing: false, time: 0, dist: 0, pts: 0, total: 0, tricks: new Set(), hideAt: 0, lastTxt: '' };
+  const TR = { w: { seatstand: 0, kneeknock: 0, nohander: 0, footdrag: 0 }, v: {}, e: {}, lean: 0, off: new T.Vector3(), fresh: true, seen: -1, cur: null, blend: 0, posing: false, time: 0, dist: 0, pts: 0, total: 0, tricks: new Set(), hideAt: 0, lastTxt: '' };
   const trickOff = new T.Vector3();
   function poseTrick(name, w) {
     if (!riderSkinned || !name || w <= 0.001) return;
     const both = fn => { for (const s of [1, -1]) fn(s, s > 0 ? 'Left' : 'Right'); };
     if (name === 'seatstand') {
       // standing on the seat: legs straight down, torso leaning back, straight arms reaching to the bars
-      aim('Spine02', 'Spine01', V(0, 1, -0.05), w); aim('Spine01', 'Spine', V(0, 1, 0.05), w); aim('neck', 'Head', V(0, 1, 0.25), w);
+      aim('Spine02', 'Spine01', V(-S.st * 0.1, 1, -0.05 + Math.sin(S.t * 1.7) * 0.03), w); aim('Spine01', 'Spine', V(-S.st * 0.08, 1, 0.05), w); aim('neck', 'Head', V(0, 1, 0.25), w);
       both((s, L) => {
         aim(L + 'UpLeg', L + 'Leg', V(0.12 * s, -1, 0.06), w); aim(L + 'Leg', L + 'Foot', V(0.08 * s, -1, -0.04), w); aim(L + 'Foot', L + 'ToeBase', V(0, -0.2, 1), w);
         aim(L + 'Arm', L + 'ForeArm', V(0.25 * s, -0.45, 0.86), w); aim(L + 'ForeArm', L + 'Hand', V(0.12 * s, -0.4, 0.9), w);
@@ -2597,11 +2597,31 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       both((s, L) => { aim(L + 'Arm', L + 'ForeArm', V(0.3 * s, -0.5, 0.8), w); aim(L + 'ForeArm', L + 'Hand', V(0.14 * s, -0.35, 0.92), w); });
     } else if (name === 'nohander') {
       aim('Spine02', 'Spine01', V(0, 1, 0.05), w); aim('neck', 'Head', V(0, 1, 0.08), w);
-      both((s, L) => { aim(L + 'Arm', L + 'ForeArm', V(0.95 * s, 0.3, 0.1), w); aim(L + 'ForeArm', L + 'Hand', V(0.5 * s, 0.85, 0.15), w); });
+      both((s, L) => { const wv = Math.sin(S.t * 2.4 + s * 1.3) * 0.12; aim(L + 'Arm', L + 'ForeArm', V(0.95 * s, 0.3 + wv, 0.1), w); aim(L + 'ForeArm', L + 'Hand', V(0.5 * s, 0.85, 0.15 + wv), w); });
     } else if (name === 'footdrag') {
       // left leg dropped off the peg, heel scraping the street behind the rider
-      aim('LeftUpLeg', 'LeftLeg', V(0.32, -0.8, -0.5), w); aim('LeftLeg', 'LeftFoot', V(0.22, -0.88, -0.42), w); aim('LeftFoot', 'LeftToeBase', V(0.05, -0.25, -1), w);
+      aim('LeftUpLeg', 'LeftLeg', V(0.32, -0.8, -0.5), w); aim('LeftLeg', 'LeftFoot', V(0.22, -0.88, -0.42 + Math.sin(S.t * 23) * 0.025 * Math.min(1, Math.abs(S.v) / 8)), w); aim('LeftFoot', 'LeftToeBase', V(0.05, -0.25, -1), w);
       aim('Spine02', 'Spine01', V(0.12, 1, 0.25), w); aim('neck', 'Head', V(0.15, 1, 0.1), w);
+    }
+  }
+  // blend whole poses bone-by-bone (riding pose plus each easing trick), then let every bone chase its target
+  // so the body moves with a little follow-through instead of jumping between aim() results
+  const POSE_K = 11, P_RIDE = {}, P_TR = {}, P_OUT = {}, P_ACT = {};
+  function grabPose(out) { for (const k in REST) (out[k] || (out[k] = new T.Quaternion())).copy(bike.bones[k].quaternion); return out; }
+  function riderPose(dt, lean, snap) {
+    if (!riderSkinned) return;
+    poseRiding(lean); grabPose(P_RIDE);
+    let sum = 0; const act = [];
+    for (const k in TR.e) { const e = TR.e[k]; if (e > 0.001) { poseRiding(lean); poseTrick(k, 1); grabPose(P_TR[k] || (P_TR[k] = {})); act.push(k); sum += e; } }
+    const norm = sum > 1 ? 1 / sum : 1, wr = Math.max(0, 1 - sum * norm), a = 1 - Math.exp(-dt * POSE_K);
+    for (const b in REST) {
+      const r = P_RIDE[b], o = P_OUT[b] || (P_OUT[b] = new T.Quaternion());
+      let x = r.x * wr, y = r.y * wr, z = r.z * wr, w = r.w * wr;
+      for (const k of act) { const q = P_TR[k][b], e = TR.e[k] * norm, sg = (q.x * r.x + q.y * r.y + q.z * r.z + q.w * r.w) < 0 ? -e : e; x += q.x * sg; y += q.y * sg; z += q.z * sg; w += q.w * sg; }
+      o.set(x, y, z, w).normalize();
+      const cur = P_ACT[b] || (P_ACT[b] = o.clone());
+      if (snap) cur.copy(o); else cur.slerp(o, a);
+      bike.bones[b].quaternion.copy(cur);
     }
   }
   const trickEl = document.getElementById('trick'), trickName = trickEl.querySelector('.tn'), trickSub = trickEl.querySelector('.ts'), trickPad = document.getElementById('tricks');
@@ -2615,9 +2635,13 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     let want = null; if (wheelie) for (const k in trickInp) if (trickInp[k]) { want = k; break; }
     // every trick has its own weight: the held one eases in while the last one eases out, so switching crossfades
     let top = 0, topK = null;
+    // critically damped spring per trick: eases out of the old pose and into the new one with no snap at either end
+    const nsub = Math.max(1, Math.ceil(dt / (1 / 120))), hs = dt / nsub, TK = 34, TC = 2 * Math.sqrt(TK);
     for (const k in TR.w) {
-      TR.w[k] += ((k === want ? 1 : 0) - TR.w[k]) * Math.min(1, dt * 4.2); if (TR.w[k] < 0.002) TR.w[k] = 0;
-      const t = TR.w[k], e = t * t * (3 - 2 * t); TR.e[k] = e; if (e > top) { top = e; topK = k; }
+      let w = TR.w[k], v = TR.v[k] || 0; const tgt = k === want ? 1 : 0;
+      for (let i = 0; i < nsub; i++) { v += (TK * (tgt - w) - TC * v) * hs; w += v * hs; }
+      if (w < 0.001 && tgt === 0) { w = 0; v = 0; } if (w > 1) { w = 1; v = Math.min(v, 0); }
+      TR.w[k] = w; TR.v[k] = v; TR.e[k] = w; if (w > top) { top = w; topK = k; }
     }
     TR.blend = top; TR.cur = topK;
     if (trickPad) { const show = wheelie && !document.getElementById('touch').hidden; if (trickPad.hidden === show) trickPad.hidden = !show; }
@@ -2668,8 +2692,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 
   // ---------- frame update
   const camPos = new T.Vector3(), camLook = new T.Vector3(), tmp = new T.Vector3(), up = new T.Vector3();
+  let FRAME = 0;
   function update(dt) {
-    S.t += dt;
+    S.t += dt; FRAME++;
     if (S.respawnAt && S.t >= S.respawnAt) { S.respawnAt = 0; respawn(); }
     if (S.state === 'ride') {
       const n = Math.ceil(dt / (1 / 120)), h = dt / n;
@@ -2737,10 +2762,16 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     else {
       bike.lean.rotation.z = -S.st * clamp(S.v / 12, 0, 1) * (S.mode === 'quad' ? -0.05 : 0.42);
       if (riderSkinned && S.state === 'ride') {
+        // a rider who wasn't posed last frame (respawn, ride swap, crash) starts settled instead of sweeping in
+        const fresh = TR.seen !== FRAME - 1; TR.seen = FRAME;
         const lean = clamp(S.th / 1.3, 0, 1);
-        if (TR.blend > 0.001 || TR.posing) { poseRiding(lean); for (const k in TR.e) if (TR.e[k] > 0.001 && k !== TR.cur) poseTrick(k, TR.e[k]); poseTrick(TR.cur, TR.blend); S.lastLean = -1; TR.posing = TR.blend > 0.001; }
-        else if (Math.abs(lean - (S.lastLean || 0)) > 0.01) { poseRiding(lean); S.lastLean = lean; }
-        const rd = bike.rider; if (rd && rd.parent === bike.pitch && rd.userData.seat) { trickOff.set(0, 0, 0); for (const k in TR.e) { const o = TRICK_OFF[k], e = TR.e[k] || 0; trickOff.x += o[0] * e; trickOff.y += o[1] * e; trickOff.z += o[2] * e; } rd.position.copy(rd.userData.seat).add(trickOff); }
+        TR.lean = fresh ? lean : TR.lean + (lean - TR.lean) * (1 - Math.exp(-dt * 7));
+        riderPose(dt, TR.lean, fresh);
+        const rd = bike.rider; if (rd && rd.parent === bike.pitch && rd.userData.seat) {
+          trickOff.set(0, 0, 0); for (const k in TR.e) { const o = TRICK_OFF[k], e = TR.e[k] || 0; trickOff.x += o[0] * e; trickOff.y += o[1] * e; trickOff.z += o[2] * e; }
+          if (fresh) TR.off.copy(trickOff); else TR.off.lerp(trickOff, 1 - Math.exp(-dt * POSE_K));
+          rd.position.copy(rd.userData.seat).add(TR.off);
+        }
       }
     }
     shadow.position.set(S.x, S.gy + 0.03, S.z);
