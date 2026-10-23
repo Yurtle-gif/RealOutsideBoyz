@@ -60,6 +60,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 .go:focus-visible{outline:3px solid #fff;outline-offset:3px}
 .go:disabled{opacity:.6;cursor:wait}
 #status{font-size:14px;color:rgba(255,255,255,.75);min-height:1.2em}
+.netrow{display:grid;gap:8px;justify-items:center}.netrow .qbtn.on{background:#2fd16b;color:#08110b;border-color:#2fd16b}.netfields{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}.netfields input{width:150px;font:inherit;font-size:16px;padding:7px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.35);color:#fff}.netfields input::placeholder{color:rgba(255,255,255,.5)}
+.nethud{position:fixed;z-index:4;top:calc(env(safe-area-inset-top,0px) + 14px);left:max(14px,env(safe-area-inset-left,0px));font-size:13px;font-weight:600;color:#bff5cf;text-shadow:0 1px 2px rgba(0,0,0,.6);pointer-events:none}
 .qrow{display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;color:rgba(255,255,255,.7)}
 .qrow .lbl{margin-right:4px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;font-size:12px}
 .qbtn{appearance:none;border:1px solid var(--line);background:rgba(255,255,255,.08);color:#fff;font-family:var(--round);font-weight:700;font-size:13px;padding:5px 11px;border-radius:999px;cursor:pointer}
@@ -86,6 +88,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 
 <canvas id="view" aria-label="Real Outside Boyz game view"></canvas>
 <canvas id="dial" width="260" height="260" aria-hidden="true"></canvas>
+<div id="netHud" class="nethud" hidden aria-live="polite"></div>
 <div class="icons">
   <button id="camBtn" class="icon" type="button" aria-label="Switch camera"><svg viewBox="0 0 24 24"><path d="M4 7h11a2 2 0 0 1 2 2v1.6l4-2.3v7.4l-4-2.3V15a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/></svg></button>
   <button id="pauseBtn" class="icon" type="button" aria-label="Pause"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="5" height="16" rx="1.5"/><rect x="14" y="4" width="5" height="16" rx="1.5"/></svg></button>
@@ -101,7 +104,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 <div id="panel" class="panel">
   <div class="card">
     <h1 id="ptitle">Real Outside <span>Boyz</span></h1>
-    <p id="psub">Real Oakland streets with hills, the 880 and BART overhead. You start in the Sailboat House lot on Lake Merritt. Press F to switch rides: dirt bike, Grom, Banshee quad and car.</p>
+    <p id="psub">Real Oakland streets with hills, the 880 and BART overhead. You start in the Sailboat House lot on Lake Merritt. Press F to switch rides: dirt bike, Grom, Banshee quad and car. Turn Online on to ride with others; share a crew code to ride with just your friends.</p>
     <div id="keys" class="keys">
       <div><kbd>W</kbd><span>Gas</span></div>
       <div><kbd>S</kbd><kbd>E</kbd><span>Brake</span></div>
@@ -114,6 +117,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       <div><kbd>1</kbd><kbd>4</kbd><span>Wheelie tricks</span></div>
     </div>
     <div class="qrow" role="group" aria-label="Graphics quality"><span class="lbl">Quality</span><button class="qbtn" type="button" data-q="low">Low</button><button class="qbtn" type="button" data-q="medium">Medium</button><button class="qbtn" type="button" data-q="high">High</button></div>
+    <div class="netrow"><button id="netBtn" class="qbtn" type="button" aria-pressed="false">Online: Off</button><div id="netFields" class="netfields" hidden><input id="netName" maxlength="14" placeholder="Your name" autocomplete="nickname" aria-label="Your rider name"><input id="netCode" maxlength="16" placeholder="Crew code (optional)" autocapitalize="characters" aria-label="Crew code, blank for the public lobby"></div></div>
     <div id="status">Loading Oakland…</div>
     <p class="credit">Map data © OpenStreetMap contributors</p>
     <button id="go" class="go" type="button" disabled>Ride</button>
@@ -122,6 +126,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
@@ -2870,11 +2875,11 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     renderer.shadowMap.needsUpdate = true;
     const useAO = L.ao && !LOWMEM; renderPass.enabled = !useAO; ssao.enabled = useAO; bloom.enabled = L.post; fxaa.enabled = L.post; gamma.enabled = L.post;
     plainMat.envMap = L.env ? envRT.texture : null; WATER.envMap = L.env ? envRT.texture : null; plainMat.needsUpdate = true; WATER.needsUpdate = true;
-    for (const btn of document.querySelectorAll('.qbtn')) btn.setAttribute('aria-pressed', String(btn.dataset.q === q));
+    for (const btn of document.querySelectorAll('.qbtn[data-q]')) btn.setAttribute('aria-pressed', String(btn.dataset.q === q));
     try { localStorage.setItem('ride-out-oakland-quality', q); } catch (e) {}
     resize();
   }
-  for (const btn of document.querySelectorAll('.qbtn')) btn.addEventListener('click', () => { autoQ = false; applyQuality(btn.dataset.q); btn.blur(); });
+  for (const btn of document.querySelectorAll('.qbtn[data-q]')) btn.addEventListener('click', () => { autoQ = false; applyQuality(btn.dataset.q); btn.blur(); });
   // auto quality: step up while riding smoothly, step down when the frame rate drops
   let fpsAcc = 0, fpsN = 0, fpsT = 0;
   function autoQuality(dt) {
@@ -2910,13 +2915,149 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   goBtn.disabled = false; if (!statusEl.textContent.startsWith('Using')) statusEl.textContent = '';
   drawDial();
 
+
+  // ---------- online: other riders, peer-to-peer over WebRTC (Trystero finds peers through public Nostr relays; no game server)
+  const NET = { lib: null, room: null, send: null, want: false, joined: false, name: '', code: '', peers: new Map(), acc: 0, seq: 0 };
+  const NET_MODES = ['bike', 'grom', 'quad', 'car'];
+  const NET_BONES = ['Hips', 'Spine02', 'Spine01', 'Spine', 'neck', 'Head', 'LeftShoulder', 'LeftArm', 'LeftForeArm', 'LeftHand', 'RightShoulder', 'RightArm', 'RightForeArm', 'RightHand', 'LeftUpLeg', 'LeftLeg', 'LeftFoot', 'LeftToeBase', 'RightUpLeg', 'RightLeg', 'RightFoot', 'RightToeBase'];
+  const netBtn = document.getElementById('netBtn'), netName = document.getElementById('netName'), netCode = document.getElementById('netCode'), netFields = document.getElementById('netFields'), netHud = document.getElementById('netHud');
+  const lsGet = k => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }, lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+  netName.value = lsGet('rob.name'); netCode.value = lsGet('rob.code');
+  const r3 = n => Math.round(n * 1000) / 1000;
+  function netStatus(t) { netHud.textContent = t; netHud.hidden = !t; }
+  function netCount() {
+    if (!NET.joined) return;
+    const n = [...NET.peers.values()].filter(p => p.seen > performance.now() - 6000).length;
+    netStatus('● ' + (n ? n + ' other rider' + (n > 1 ? 's' : '') : 'online, nobody else yet') + (NET.code ? '  ·  crew ' + NET.code : ''));
+  }
+  async function netJoin() {
+    NET.name = (netName.value || '').trim().slice(0, 14) || 'Rider ' + ((Math.random() * 900 + 100) | 0); NET.code = (netCode.value || '').trim().toUpperCase().slice(0, 16);
+    lsSet('rob.name', netName.value.trim()); lsSet('rob.code', NET.code);
+    netStatus('Connecting…');
+    try {
+      NET.lib = NET.lib || await import('https://cdn.jsdelivr.net/npm/trystero@0.24.0/+esm');
+      if (!NET.want) return;
+      const room = NET.lib.joinRoom({ appId: 'real-outside-boyz-oakland-v1' }, NET.code ? 'crew-' + NET.code.toLowerCase() : 'oakland-public');
+      const [send, recv] = room.makeAction('st');
+      NET.room = room; NET.send = send; NET.joined = true;
+      recv((d, id) => netRecv(id, d));
+      room.onPeerJoin(() => netCount());
+      room.onPeerLeave(id => { netDrop(id); netCount(); });
+      netCount();
+    } catch (e) { NET.joined = false; netStatus("Online didn't connect here"); setTimeout(() => { if (!NET.joined) netStatus(''); }, 5000); }
+  }
+  function netLeave() { try { NET.room && NET.room.leave(); } catch (e) {} NET.room = null; NET.send = null; NET.joined = false; for (const id of [...NET.peers.keys()]) netDrop(id); netStatus(''); }
+  function netSetUI() { netBtn.textContent = NET.want ? 'Online: On' : 'Online: Off'; netBtn.classList.toggle('on', NET.want); netBtn.setAttribute('aria-pressed', NET.want ? 'true' : 'false'); netFields.hidden = !NET.want; }
+  netBtn.addEventListener('click', () => { NET.want = !NET.want; lsSet('rob.online', NET.want ? '1' : ''); netSetUI(); if (NET.want) netJoin(); else netLeave(); });
+  for (const el of [netName, netCode]) { el.addEventListener('keydown', e => e.stopPropagation()); el.addEventListener('change', () => { if (NET.want) { netLeave(); netJoin(); } }); }
+  NET.want = lsGet('rob.online') === '1'; netSetUI(); if (NET.want) netJoin();
+
+  // my state, ~12 times a second while riding
+  function netSnap() {
+    const inCar = S.mode === 'car', rt = inCar ? car.root : bike.root, rd = bike.rider;
+    const d = { n: NET.name, m: NET_MODES.indexOf(S.mode), p: [r3(rt.position.x), r3(rt.position.y), r3(rt.position.z)], r: [r3(rt.rotation.x), r3(rt.rotation.y)], l: r3(bike.lean.rotation.z), th: r3(bike.pitch.rotation.x), v: r3(S.v), st: r3(S.st), q: NET.seq++ };
+    if (!inCar && rd) {
+      if (rd.parent === bike.pitch) { d.rp = [r3(rd.position.x), r3(rd.position.y), r3(rd.position.z)]; d.rw = 0; }
+      else { rd.getWorldPosition(tmpN); rd.getWorldQuaternion(tmpQ); d.rp = [r3(tmpN.x), r3(tmpN.y), r3(tmpN.z)]; d.rq = [r3(tmpQ.x), r3(tmpQ.y), r3(tmpQ.z), r3(tmpQ.w)]; d.rw = 1; }
+      if (riderSkinned) { const b = []; for (const k of NET_BONES) { const bn = bike.bones[k]; if (bn) b.push(r3(bn.quaternion.x), r3(bn.quaternion.y), r3(bn.quaternion.z), r3(bn.quaternion.w)); else b.push(0, 0, 0, 1); } d.b = b; }
+    }
+    return d;
+  }
+  const tmpN = new T.Vector3(), tmpQ = new T.Quaternion(), tmpQ2 = new T.Quaternion();
+  // other riders: their own copy of the ride and a cloned rider, eased toward the latest packet
+  function pathTo(root, o) { const p = []; while (o && o !== root) { if (!o.parent) return null; p.unshift(o.parent.children.indexOf(o)); o = o.parent; } return o === root ? p : null; }
+  function follow(root, p) { let o = root; for (const i of p || []) o = o && o.children[i]; return o || null; }
+  function cloneRide(m, P) {
+    const src = m === 'bike' ? bike.model : m === 'grom' ? grom.root : m === 'quad' ? quad.root : car.body; if (!src) return null;
+    const c = src.clone(); c.visible = true;
+    let spin = [], steer = [];
+    const map = arr => arr.filter(Boolean).map(o => follow(c, pathTo(src, o))).filter(Boolean);
+    if (m === 'bike' && bike.dw) { spin = map([bike.dw.rear, bike.dw.front]); steer = map([bike.dw.front]); }
+    if (m === 'grom') { spin = map([grom.rear, grom.front]); steer = map([grom.steer]); }
+    if (m === 'quad') { spin = map(quad.wheels); steer = map(quad.front); }
+    if (m === 'car') { spin = map(car.spin); steer = map(car.steer); }
+    (m === 'car' ? P.root : P.pitch).add(c);
+    return { obj: c, spin, steer };
+  }
+  function nameTag(text) {
+    const [c, x] = makeCanvas(256, 64); x.font = '700 34px Inter, system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    const w = Math.min(250, x.measureText(text).width + 28); x.fillStyle = 'rgba(10,14,24,.62)'; x.beginPath(); x.roundRect ? x.roundRect(128 - w / 2, 6, w, 52, 16) : x.rect(128 - w / 2, 6, w, 52); x.fill();
+    x.fillStyle = '#ffd34d'; x.fillText(text, 128, 33);
+    const s = new T.Sprite(new T.SpriteMaterial({ map: tex(c), depthWrite: false, transparent: true })); s.scale.set(2.2, 0.55, 1); s.renderOrder = 5; return s;
+  }
+  function netPeer(id) {
+    let P = NET.peers.get(id); if (P) return P;
+    P = { root: new T.Group(), lean: new T.Group(), pitch: new T.Group(), rides: {}, mode: null, rider: null, bones: {}, tag: null, name: '', d: null, seen: 0, init: false, q: -1 };
+    P.root.rotation.order = 'YXZ'; P.root.add(P.lean); P.lean.add(P.pitch); P.root.visible = false; scene.add(P.root);
+    if (bike.rider) {
+      P.rider = (riderSkinned && T.SkeletonUtils) ? T.SkeletonUtils.clone(bike.rider) : bike.rider.clone();
+      P.rider.traverse(o => { if (o.isBone) P.bones[o.name] = o; if (o.isMesh) { o.frustumCulled = false; o.castShadow = true; } });
+      P.pitch.add(P.rider); P.rider.rotation.set(0, Math.PI, 0);
+    }
+    NET.peers.set(id, P); return P;
+  }
+  function netDrop(id) { const P = NET.peers.get(id); if (!P) return; scene.remove(P.root); if (P.rider && P.rider.parent) P.rider.parent.remove(P.rider); if (P.tag) P.tag.material.map.dispose(); NET.peers.delete(id); }
+  function netRecv(id, d) {
+    if (!d || !Array.isArray(d.p) || d.p.length !== 3 || !d.p.every(Number.isFinite)) return;
+    const P = netPeer(id); if (typeof d.q === 'number' && d.q <= P.q && P.q - d.q < 1000) return; P.q = d.q;
+    P.d = d; P.seen = performance.now();
+    const nm = String(d.n || 'Rider').slice(0, 14);
+    if (nm !== P.name) { P.name = nm; if (P.tag) P.root.remove(P.tag); P.tag = nameTag(nm); P.root.add(P.tag); }
+    const m = NET_MODES[d.m] || 'bike';
+    if (m !== P.mode) {
+      P.mode = m;
+      if (m === 'quad' && !quad.ok) ensureQuad(); if (m === 'grom') ensureGrom(); if (m === 'car') ensureG35();
+      for (const k in P.rides) P.rides[k].obj.visible = false;
+    }
+  }
+  const angLerp = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
+  function netTick(dt) {
+    if (!NET.joined) return;
+    NET.acc += dt;
+    if (NET.send && NET.acc > 1 / 12) { NET.acc = 0; if (S.state === 'ride' || S.state === 'crash') { try { NET.send(netSnap()); } catch (e) {} } }
+    const now = performance.now(), a = 1 - Math.exp(-dt * 12);
+    for (const [id, P] of NET.peers) {
+      const d = P.d; if (!d) continue;
+      if (now - P.seen > 12000) { netDrop(id); continue; }
+      const far = Math.hypot(d.p[0] - S.x, d.p[2] - S.z) > 450, stale = now - P.seen > 6000;
+      P.root.visible = !far && !stale; if (!P.root.visible) continue;
+      const m = P.mode, inCar = m === 'car';
+      // ride model: cloned lazily once that ride has loaded here
+      if (!P.rides[m]) { const r = cloneRide(m, P); if (r) P.rides[m] = r; }
+      for (const k in P.rides) P.rides[k].obj.visible = k === m;
+      const R0 = P.rides[m];
+      // ease toward the latest packet, nudged forward by speed so motion doesn't stutter between packets
+      const f = forward(d.r[1]), lead = (now - P.seen) / 1000 * d.v;
+      tmpN.set(d.p[0] + f.x * Math.min(lead, 2), d.p[1], d.p[2] + f.z * Math.min(lead, 2));
+      if (!P.init) { P.root.position.copy(tmpN); P.root.rotation.set(d.r[0], d.r[1], 0); P.lean.rotation.z = d.l; P.pitch.rotation.x = d.th; P.init = true; }
+      else { P.root.position.lerp(tmpN, a); P.root.rotation.x += (d.r[0] - P.root.rotation.x) * a; P.root.rotation.y = angLerp(P.root.rotation.y, d.r[1], a); P.lean.rotation.z += ((inCar ? 0 : d.l) - P.lean.rotation.z) * a; P.pitch.rotation.x += ((inCar ? 0 : d.th) - P.pitch.rotation.x) * a; }
+      P.pitch.position.y = inCar ? 0 : m === 'grom' ? grom.R : m === 'quad' ? quad.R : (bike.R0 || R);
+      if (R0) {
+        const rad = m === 'bike' ? (bike.dw ? bike.dw.R : R) : m === 'grom' ? grom.R : m === 'quad' ? quad.R : (car.R || CR), sg = m === 'grom' ? -(grom.spin || 1) : m === 'car' ? -1 : 1, sp = d.v / rad * dt * sg;
+        for (const w of R0.spin) w.rotation.x += sp;
+        for (const w of R0.steer) w.rotation.y = -d.st * (m === 'quad' ? 0.45 : m === 'car' ? 0.55 : 0.35);
+      }
+      // rider: seated in the rig, or flying free after a bail
+      if (P.rider) {
+        P.rider.visible = !inCar && !!d.rp;
+        if (d.rp) {
+          if (d.rw) { if (P.rider.parent !== scene) scene.add(P.rider); P.rider.position.lerp(tmpN.set(d.rp[0], d.rp[1], d.rp[2]), a); if (d.rq) P.rider.quaternion.slerp(tmpQ.set(d.rq[0], d.rq[1], d.rq[2], d.rq[3]), a); }
+          else { if (P.rider.parent !== P.pitch) { P.pitch.add(P.rider); P.rider.rotation.set(0, Math.PI, 0); } P.rider.position.lerp(tmpN.set(d.rp[0], d.rp[1], d.rp[2]), a); }
+        }
+        if (d.b && d.b.length === NET_BONES.length * 4) NET_BONES.forEach((k, i) => { const bn = P.bones[k]; if (bn) bn.quaternion.slerp(tmpQ2.set(d.b[i * 4], d.b[i * 4 + 1], d.b[i * 4 + 2], d.b[i * 4 + 3]).normalize(), a); });
+      }
+      if (P.tag) P.tag.position.set(0, inCar ? 2.0 : 2.45, 0);
+    }
+    NET.cnt = (NET.cnt || 0) + dt; if (NET.cnt > 2) { NET.cnt = 0; netCount(); }
+  }
+
   window.__dbg = { S, H, MAP, respawn, respawnHome, tiles, cells, applyQuality, raisedAt, blocked, RD, bike, inp, T };
   let last = performance.now();
   function loop(now) {
     requestAnimationFrame(loop);
     const dt = Math.min(0.1, (now - last) / 1000); last = now;
     if (document.hidden || S.paused) return;
-    update(dt); updateEnv(); autoQuality(dt);
+    update(dt); netTick(dt); updateEnv(); autoQuality(dt);
     if (QL[quality].post) composer.render(); else renderer.render(scene, camera);
     window.__perf = renderer.info.render;
   }
