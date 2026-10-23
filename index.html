@@ -81,8 +81,11 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 .tricks button{appearance:none;min-width:96px;height:40px;padding:0 12px;border-radius:12px;border:2px solid var(--line);background:rgba(10,14,22,.5);color:#fff;font-family:var(--round);font-weight:700;font-size:14px;touch-action:none;text-align:left}
 .tricks button.on{background:var(--gold);color:#1b1408;border-color:var(--gold)}
 @media (max-width:560px){.tricks{bottom:calc(env(safe-area-inset-bottom,0px) + 84px)}.tricks button{height:36px;min-width:88px;font-size:13px}}
+#g3dAttr{position:fixed;left:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 6px);z-index:5;display:flex;align-items:center;gap:6px;font:11px/1.2 -apple-system,BlinkMacSystemFont,sans-serif;color:#fff;text-shadow:0 1px 2px #000;pointer-events:none;max-width:70vw}
+#g3dAttr img{height:18px;width:auto}
 </style>
 
+<div id="g3dAttr" hidden><img alt="Google" src="https://maps.gstatic.com/mapfiles/api-3/images/google_white5.png"><span id="g3dCredits"></span></div>
 <canvas id="view" aria-label="Real Outside Boyz game view"></canvas>
 <canvas id="dial" width="260" height="260" aria-hidden="true"></canvas>
 <div class="icons">
@@ -114,6 +117,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     </div>
     <div class="qrow" role="group" aria-label="Graphics quality"><span class="lbl">Quality</span><button class="qbtn" type="button" data-q="auto">Auto</button><button class="qbtn" type="button" data-q="low">Low</button><button class="qbtn" type="button" data-q="medium">Medium</button><button class="qbtn" type="button" data-q="high">High</button></div>
     <div class="qrow" role="group" aria-label="Lighting mode"><span class="lbl">Lighting</span><button id="nightBtn" class="modebtn" type="button" aria-pressed="false">Sunset</button></div>
+    <div id="g3dRow" class="qrow" role="group" aria-label="World" hidden><span class="lbl">World</span><button id="g3dBtn" class="modebtn" type="button" aria-pressed="false">Real Oakland (Google 3D)</button></div>
     <div id="status">Loading Oakland…</div>
     <p class="credit">Map data © OpenStreetMap contributors</p>
     <button id="go" class="go" type="button" disabled>Ride</button>
@@ -134,6 +138,18 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/SSAOPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
+<!-- optional, gitignored: generated from .env.local by scripts/make-config.sh (defines window.ROB_CONFIG) -->
+<script src="config.local.js" onerror="window.ROB_CONFIG=window.ROB_CONFIG||{}"></script>
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three-shim.js",
+  "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js": "./vendor/three-shim.js",
+  "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/",
+  "3d-tiles-renderer/": "https://cdn.jsdelivr.net/npm/3d-tiles-renderer@0.3.20/src/"
+} }
+</script>
+<script>if (window.ROB_CONFIG && window.ROB_CONFIG.googleMapsApiKey) { const m = document.createElement('script'); m.type = 'module'; m.src = 'google3d.js'; document.head.appendChild(m); }</script>
 <script>
 (async function () {
   const T = THREE;
@@ -1892,6 +1908,203 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function sidewalkAt(x, z) { return false; }
 
 
+  // ---------- International Blvd: AC Transit Tempo BRT centre-running bus lanes with white raised dividers (1st Ave to 102nd Ave)
+  const POIS = await fetch('models/oakland-pois.json').then(r => r.json()).catch(() => ({ pois: [] }));
+  const EXTRA_ROOT = new T.Group(); EXTRA_ROOT.name = 'extras';
+  const BRT = { paint: null, dividers: null };
+  {
+    const ib = RD.ways.filter(w => w.n === 'International Boulevard');
+    const otherNodes = new Set(); for (const w of RD.ways) if (w.n !== 'International Boulevard' && !/footway|path|steps|cycleway/.test(w.c)) for (const n of w.nids) otherNodes.add(n);
+    const junctions = []; for (const w of ib) if (w.nids.length * 2 === w.pts.length) w.nids.forEach((n, i) => { if (otherNodes.has(n)) junctions.push([w.pts[i * 2], w.pts[i * 2 + 1]]); });
+    const jgrid = new Map(); for (const [x, z] of junctions) { const k = Math.floor(x / 50) + ',' + Math.floor(z / 50); (jgrid.get(k) || jgrid.set(k, []).get(k)).push([x, z]); }
+    const nearJunction = (x, z, r) => { for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const a = jgrid.get((Math.floor(x / 50) + i) + ',' + (Math.floor(z / 50) + j)); if (a) for (const q of a) if (Math.hypot(q[0] - x, q[1] - z) < r) return true; } return false; };
+    const LANE = 3.6, pp = [], dv = [];
+    for (const w of ib) {
+      const p = w.pts, half = (w.w || 12) / 2;
+      // two-way way: lanes either side of the centreline; one-way half of a pair: bus lane on its inner (left) edge
+      const bands = w.one ? [[half - LANE, half]] : [[-LANE, 0], [0, LANE]];
+      const divs = w.one ? [half - LANE] : [-LANE, LANE];
+      for (let k = 0; k + 3 < p.length; k += 2) {
+        const ax = p[k], az = p[k + 1], bx = p[k + 2], bz = p[k + 3], L = Math.hypot(bx - ax, bz - az); if (L < 0.5) continue;
+        const dx = (bx - ax) / L, dz = (bz - az) / L, lx = dz, lz = -dx; // left normal (x east, z south)
+        for (const [o0, o1] of bands) {
+          const q = (t, o) => [ax + dx * t + lx * o, az + dz * t + lz * o];
+          for (let t = 0; t < L; t += 6) { const t1 = Math.min(L, t + 6); { const m = q((t + t1) / 2, (o0 + o1) / 2); if (nearJunction(m[0], m[1], 22)) continue; } const A = q(t, o0), B = q(t, o1), C = q(t1, o1), D = q(t1, o0); pp.push(A, B, C, A, C, D); }
+        }
+        for (const o of divs) for (let t = 1; t < L - 1; t += 4.5) {
+          const x = ax + dx * t + lx * o, z = az + dz * t + lz * o;
+          if (nearJunction(x, z, 16)) continue;
+          dv.push([x, z, Math.atan2(dx, dz)]);
+        }
+      }
+    }
+    // bus lane paint (OSM mode only: Google 3D already shows the real paint)
+    const pos = new Float32Array(pp.length * 3);
+    pp.forEach((v, i) => { pos[i * 3] = v[0]; pos[i * 3 + 1] = H(v[0], v[1]) + 0.09; pos[i * 3 + 2] = v[1]; });
+    const lg = new T.BufferGeometry(); lg.setAttribute('position', new T.BufferAttribute(pos, 3)); lg.computeVertexNormals();
+    BRT.paint = new T.Mesh(lg, new T.MeshStandardMaterial({ color: col('#4a2c28'), roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -2, side: T.DoubleSide }));
+    BRT.paint.receiveShadow = true; scene.add(BRT.paint);
+    // raised white dividers: one instanced draw call, each one a collider
+    const dg = new T.BoxGeometry(0.35, 0.3, 2.4); dg.translate(0, 0.15, 0);
+    const dm = new T.InstancedMesh(dg, new T.MeshStandardMaterial({ color: col('#f2f2ee'), roughness: 0.6 }), dv.length);
+    const m4 = new T.Matrix4(), q4 = new T.Quaternion(), up = new T.Vector3(0, 1, 0), one = new T.Vector3(1, 1, 1);
+    dv.forEach(([x, z, ry], i) => { m4.compose(new T.Vector3(x, H(x, z), z), q4.setFromAxisAngle(up, ry), one); dm.setMatrixAt(i, m4); rectCollider(x, z, ry, 0.35, 2.4); });
+    dm.castShadow = true; dm.receiveShadow = true; BRT.dividers = dm; BRT.list = dv; EXTRA_ROOT.add(dm);
+  }
+
+  // ---------- real stores, restaurants and taco trucks along the route (OSM + user-added), name-text signs only
+  const POI_OBJ = [];
+  const signTex = (text, bg, fg) => {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 128; const g = c.getContext('2d');
+    g.fillStyle = bg; g.fillRect(0, 0, 512, 128); g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 6; g.strokeRect(5, 5, 502, 118);
+    let fs = 72; g.font = `700 ${fs}px Oswald, Anton, sans-serif`; while (g.measureText(text).width > 470 && fs > 22) { fs -= 4; g.font = `700 ${fs}px Oswald, Anton, sans-serif`; }
+    g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 256, 66);
+    const t = new T.CanvasTexture(c); t.encoding = T.sRGBEncoding; t.anisotropy = 4; return t;
+  };
+  const SIGN_COL = { food: ['#8f1d1d', '#fff3d6'], shop: ['#1d3b6b', '#ffffff'], landmark: ['#111111', '#f4d35e'], truck: ['#222', '#ffe14d'] };
+  const boardGeo = new T.BoxGeometry(1, 1, 0.12), faceGeo = new T.PlaneGeometry(1, 1);
+  const postMat = new T.MeshStandardMaterial({ color: col('#3a3a3a'), roughness: 0.6, metalness: 0.4 });
+  // simple food truck: one merged geometry with vertex colours, tinted per truck
+  function truckGeo() {
+    const parts = [], add = (w, h, d, x, y, z, c) => { const g = new T.BoxGeometry(w, h, d); g.translate(x, y, z); const n = g.attributes.position.count, cc = new Float32Array(n * 3), cl = new T.Color(c); for (let i = 0; i < n; i++) cl.toArray(cc, i * 3); g.setAttribute('color', new T.BufferAttribute(cc, 3)); parts.push(g); };
+    add(2.3, 2.5, 4.6, 0, 1.85, -0.6, '#ffffff');      // box body (tinted)
+    add(2.2, 1.5, 1.7, 0, 1.35, 2.5, '#ffffff');      // cab (tinted)
+    add(2.0, 0.7, 0.05, 0, 1.75, 3.36, '#20262c');    // windshield
+    add(0.05, 1.1, 2.6, 1.17, 2.1, -0.6, '#20262c');  // serving window (right side)
+    add(0.6, 0.06, 2.8, 1.45, 2.75, -0.6, '#d8d8d8'); // awning
+    add(0.3, 0.1, 2.6, 1.32, 1.5, -0.6, '#b9b9b9');   // counter
+    for (const [x, z] of [[-1.05, 2.4], [1.05, 2.4], [-1.05, -1.9], [1.05, -1.9]]) add(0.3, 0.8, 0.8, x, 0.4, z, '#151515');
+    const g = T.BufferGeometryUtils.mergeBufferGeometries(parts); return g;
+  }
+  const TRUCK_GEO = truckGeo();
+  for (const p of POIS.pois) {
+    const grp = new T.Group(); grp.position.set(p.x, H(p.x, p.z), p.z); grp.userData.poi = p;
+    if (p.k === 'mural') {
+      // big multi-panel mural wall: original placeholder art; drop Eric's own photo of the mural at models/fk/mural_eric.jpg to replace it
+      grp.position.y = H(grp.position.x, grp.position.z); grp.rotation.y = p.yaw || 0; // flush on the building facade
+      const W = 24, HH = 12; // photo panel is 2:1
+      const c = document.createElement('canvas'); c.width = 2048; c.height = 640; const g = c.getContext('2d');
+      const panels = ['#f2b134', '#e4572e', '#2e86ab', '#7a3cff', '#1b998b'];
+      panels.forEach((h, i) => { const gr = g.createLinearGradient(0, 0, 0, 640); gr.addColorStop(0, h); gr.addColorStop(1, '#141414'); g.fillStyle = gr; g.fillRect(i * 410, 0, 406, 640); });
+      g.globalAlpha = 0.25; for (let i = 0; i < 40; i++) { g.fillStyle = i % 2 ? '#fff' : '#000'; g.beginPath(); g.arc((i * 211) % 2048, (i * 97) % 640, 20 + (i * 13) % 60, 0, 6.3); g.fill(); } g.globalAlpha = 1;
+      // stylized quad rider (centre panel): helmet + hoodie, pulling a wheelie
+      g.save(); g.translate(1024, 470); g.rotate(-0.22); g.fillStyle = '#101010';
+      g.beginPath(); g.arc(-150, 40, 70, 0, 6.3); g.arc(170, 40, 70, 0, 6.3); g.fill();
+      g.fillStyle = '#d7263d'; g.fillRect(-200, -70, 380, 70); g.fillRect(-60, -120, 160, 60);
+      g.fillStyle = '#2d2d2d'; g.beginPath(); g.moveTo(-40, -110); g.lineTo(60, -110); g.lineTo(40, -260); g.lineTo(-30, -250); g.fill(); // hoodie torso
+      g.strokeStyle = '#2d2d2d'; g.lineWidth = 34; g.lineCap = 'round'; g.beginPath(); g.moveTo(30, -230); g.lineTo(140, -170); g.stroke(); // arms to bars
+      g.fillStyle = '#f5f5f5'; g.beginPath(); g.arc(10, -300, 52, 0, 6.3); g.fill(); g.fillStyle = '#111'; g.fillRect(20, -318, 46, 26); // helmet + visor
+      g.restore();
+      g.fillStyle = '#fff'; g.font = '700 120px Anton, Oswald, sans-serif'; g.textAlign = 'center'; g.fillText('BIKE LIFE', 1024, 140);
+      g.font = '600 40px Oswald, sans-serif'; g.fillText('placeholder art — photo of the real mural goes here', 1024, 610);
+      const tex = new T.CanvasTexture(c); tex.encoding = T.sRGBEncoding; tex.anisotropy = 8;
+      const mat = new T.MeshBasicMaterial({ map: tex, toneMapped: false });
+      new T.TextureLoader().load('models/fk/mural_eric.jpg', t => { t.encoding = T.sRGBEncoding; t.anisotropy = 8; mat.map = t; mat.needsUpdate = true; tex.dispose(); }, undefined, () => {});
+      const wall = new T.Mesh(boardGeo, postMat); wall.scale.set(W + 0.4, HH + 0.4, 4); wall.position.set(0, HH / 2, -2.1); grp.add(wall);
+      const face = new T.Mesh(faceGeo, mat); face.scale.set(W, HH, 1); face.position.set(0, HH / 2 + 0.2, 0.01); grp.add(face);
+      rectCollider(grp.position.x - Math.sin(p.yaw || 0) * 2.1, grp.position.z - Math.cos(p.yaw || 0) * 2.1, (p.yaw || 0) + Math.PI / 2, 0.6, W);
+      grp.userData.poi = Object.assign({}, p, { x: grp.position.x, z: grp.position.z });
+    } else if (p.k === 'truck') {
+      const tint = col(p.color || (p.taco ? '#e8e2d2' : '#d9d9d9'));
+      const body = new T.Mesh(TRUCK_GEO, new T.MeshStandardMaterial({ vertexColors: true, color: tint, roughness: 0.45, metalness: 0.15 }));
+      body.castShadow = true; grp.add(body); grp.rotation.y = p.yaw || 0;
+      const label = p.src === 'user' ? 'TACOS' : (p.taco ? p.n : p.n);
+      const tex = signTex(label, '#c0392b', '#ffffff'); const sm = new T.MeshBasicMaterial({ map: tex, toneMapped: false });
+      const s = new T.Mesh(faceGeo, sm); s.scale.set(2.6, 0.65, 1); s.position.set(1.18, 3.35, -0.6); s.rotation.y = Math.PI / 2; grp.add(s);
+      const s2 = s.clone(); s2.position.x = -1.18; s2.rotation.y = -Math.PI / 2; grp.add(s2);
+      rectCollider(p.x, p.z, p.yaw || 0, 2.4, 5.8);
+    } else {
+      const [bg, fg] = SIGN_COL[p.k] || SIGN_COL.shop;
+      const big = p.k === 'landmark' || p.src === 'user';
+      const w = big ? 6.5 : Math.min(5.5, 2.2 + p.n.length * 0.16), h = w / 4;
+      // sign sits at the building front facing the street (toward the nearest road)
+      const fwd = (p.road || 6) - 4.5; grp.position.x += Math.sin(p.yaw || 0) * Math.max(0, fwd); grp.position.z += Math.cos(p.yaw || 0) * Math.max(0, fwd);
+      grp.position.y = H(grp.position.x, grp.position.z); grp.rotation.y = p.yaw || 0;
+      const board = new T.Mesh(boardGeo, postMat); board.scale.set(w + 0.2, h + 0.2, 1); board.position.y = big ? 5 : 3.6; grp.add(board);
+      const face = new T.Mesh(faceGeo, new T.MeshBasicMaterial({ map: null, toneMapped: false, color: 0xffffff })); face.scale.set(w, h, 1); face.position.set(0, board.position.y, 0.07); grp.add(face);
+      face.userData.lazy = [p.n, bg, fg];
+      for (const sx of [-w / 2 + 0.15, w / 2 - 0.15]) { const post = new T.Mesh(boardGeo, postMat); post.scale.set(0.12, board.position.y, 1); post.position.set(sx, board.position.y / 2, -0.05); grp.add(post); }
+    }
+    grp.visible = false; EXTRA_ROOT.add(grp); POI_OBJ.push(grp);
+  }
+  // ---------- East Bay Dragons MC clubhouse: always-on block party out front (generic cruisers, crowd, string lights, grill, speakers)
+  {
+    const d = POIS.pois.find(p => p.party);
+    if (d) {
+      const ry = d.yaw || 0, fx = Math.sin(ry), fz = Math.cos(ry), rx = fz, rz = -fx; // f = toward the street, r = along the frontage
+      const base = (along, out) => [d.x + rx * along + fx * out, d.z + rz * along + fz * out];
+      const front = Math.max(4, (d.road || 12) - 6);
+      const party = new T.Group(); party.name = 'dragons-party';
+      // cruisers: one merged geometry instanced; parked at an angle along the curb side
+      const wheel = (z, r) => { const g = new T.CylinderGeometry(r, r, 0.14, 14); g.rotateZ(Math.PI / 2); g.translate(0, r, z); const n = g.attributes.position.count, cc = new Float32Array(n * 3); cc.fill(0.03); g.setAttribute('color', new T.BufferAttribute(cc, 3)); return g.toNonIndexed(); };
+      const geos = [wheel(0.95, 0.36), wheel(-0.75, 0.34)];
+      const box = (w, h, l, x, y, z, c, rxx) => { const g = new T.BoxGeometry(w, h, l); if (rxx) g.rotateX(rxx); g.translate(x, y, z); const n = g.attributes.position.count, cc = new Float32Array(n * 3), cl = new T.Color(c); for (let i = 0; i < n; i++) cl.toArray(cc, i * 3); g.setAttribute('color', new T.BufferAttribute(cc, 3)); geos.push(g.toNonIndexed()); };
+      box(0.14, 0.12, 1.7, 0, 0.42, 0.05, '#b8b8b8');                // frame rail
+      box(0.34, 0.26, 0.62, 0, 0.92, 0.25, '#ffffff');               // tank (tinted)
+      box(0.36, 0.12, 0.6, 0, 0.74, -0.35, '#1a1a1a');               // seat
+      box(0.06, 0.06, 1.0, 0, 0.75, 0.95, '#c8c8c8', -0.55);         // raked fork
+      box(0.9, 0.05, 0.05, 0, 1.25, 0.72, '#c8c8c8');                // apes
+      box(0.4, 0.4, 0.5, 0, 0.55, 0.1, '#7d7d7d');                   // engine
+      box(0.08, 0.08, 1.2, 0.2, 0.3, -0.4, '#cfcfcf');               // pipe
+      box(0.4, 0.06, 0.6, 0, 0.6, -0.85, '#ffffff');                 // rear fender (tinted)
+      const bikeGeo = T.BufferGeometryUtils.mergeBufferGeometries(geos);
+      const N = 12, bikes = new T.InstancedMesh(bikeGeo, new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.55 }), N);
+      const paint = ['#0b0b0b', '#5c0f12', '#0d2a5a', '#2b2b2b', '#6b5a12', '#0b0b0b'];
+      const M = new T.Matrix4(), Q = new T.Quaternion(), UP = new T.Vector3(0, 1, 0), S1 = new T.Vector3(1, 1, 1);
+      for (let i = 0; i < N; i++) {
+        const along = (i - (N - 1) / 2) * 1.35, [x, z] = base(along, front); const yaw = ry + Math.PI - 0.45; // back wheel to the kerb, angled
+        M.compose(new T.Vector3(x, H(x, z), z), Q.setFromAxisAngle(UP, yaw), S1); bikes.setMatrixAt(i, M); bikes.setColorAt(i, col(paint[i % paint.length]));
+        rectCollider(x, z, yaw, 0.8, 2.2);
+      }
+      bikes.castShadow = true; party.add(bikes);
+      // crowd: simple standing silhouettes (instanced capsule-ish figure)
+      const fg = [];
+      const pbox = (g, y) => { g.translate(0, y, 0); fg.push(g.toNonIndexed ? (g.index ? g.toNonIndexed() : g) : g); };
+      pbox(new T.CylinderGeometry(0.2, 0.17, 0.75, 8), 1.12); pbox(new T.SphereGeometry(0.13, 8, 6), 1.66); pbox(new T.CylinderGeometry(0.15, 0.1, 0.78, 8), 0.39);
+      const crowd = new T.InstancedMesh(T.BufferGeometryUtils.mergeBufferGeometries(fg), new T.MeshStandardMaterial({ roughness: 0.9 }), 18);
+      const shirts = ['#111111', '#1f1f1f', '#3a2a1a', '#5a1010', '#202a3a', '#6a6a6a'];
+      for (let i = 0; i < 18; i++) {
+        const along = ((i * 37) % 18 - 9) * 0.9, out = front - 3 - (i % 3) * 1.1, [x, z] = base(along, out);
+        M.compose(new T.Vector3(x, H(x, z), z), Q.setFromAxisAngle(UP, (i * 1.7) % 6.28), new T.Vector3(1, 0.92 + (i % 4) * 0.05, 1)); crowd.setMatrixAt(i, M); crowd.setColorAt(i, col(shirts[i % shirts.length]));
+      }
+      crowd.castShadow = true; party.add(crowd);
+      // string lights between two poles over the frontage
+      const [p0x, p0z] = base(-9, front - 1.5), [p1x, p1z] = base(9, front - 1.5);
+      const poleG = new T.CylinderGeometry(0.06, 0.06, 4.2, 6); poleG.translate(0, 2.1, 0);
+      for (const [x, z] of [[p0x, p0z], [p1x, p1z]]) { const pm = new T.Mesh(poleG, postMat); pm.position.set(x, H(x, z), z); party.add(pm); }
+      const NB = 24, bulbs = new T.InstancedMesh(new T.SphereGeometry(0.07, 6, 4), new T.MeshBasicMaterial({ color: col('#ffd27a'), toneMapped: false }), NB);
+      const wire = [];
+      for (let i = 0; i < NB; i++) { const t = i / (NB - 1), x = p0x + (p1x - p0x) * t, z = p0z + (p1z - p0z) * t, y = H(x, z) + 4.1 - Math.sin(t * Math.PI) * 0.7; M.compose(new T.Vector3(x, y, z), Q.identity(), S1); bulbs.setMatrixAt(i, M); wire.push(new T.Vector3(x, y + 0.05, z)); }
+      party.add(bulbs); party.add(new T.Line(new T.BufferGeometry().setFromPoints(wire), new T.LineBasicMaterial({ color: 0x222222 })));
+      // grill + speakers
+      { const [x, z] = base(-6, front - 4); const g = new T.Mesh(new T.BoxGeometry(1.2, 0.9, 0.6), new T.MeshStandardMaterial({ color: col('#1b1b1b'), metalness: 0.6, roughness: 0.4 })); g.position.set(x, H(x, z) + 0.45, z); g.rotation.y = ry; party.add(g); rectCollider(x, z, ry, 1.2, 0.6); }
+      for (const a of [7, 8.2]) { const [x, z] = base(a, front - 4); const sp = new T.Mesh(new T.BoxGeometry(0.7, 1.4, 0.6), new T.MeshStandardMaterial({ color: col('#0e0e0e'), roughness: 0.7 })); sp.position.set(x, H(x, z) + 0.7, z); sp.rotation.y = ry; party.add(sp); rectCollider(x, z, ry, 0.7, 0.6); }
+      party.visible = false; party.userData.poi = { x: d.x, z: d.z }; party.userData.noSnap = true; EXTRA_ROOT.add(party); POI_OBJ.push(party);
+    }
+  }
+  scene.add(EXTRA_ROOT);
+  // show POIs within 260 m; build sign textures lazily and free them when far
+  let poiT = 0;
+  function updatePOIs(dt, px, pz, g3dGround) {
+    if ((poiT += dt) < 0.4) return; poiT = 0;
+    for (const g of POI_OBJ) {
+      const p = g.userData.poi, dd = Math.hypot(p.x - px, p.z - pz), vis = dd < 260;
+      g.visible = vis;
+      g.traverse(o => { if (!o.userData.lazy) return; if (vis && !o.material.map) { o.material.map = signTex(...o.userData.lazy); o.material.needsUpdate = true; } else if (!vis && o.material.map && dd > 400) { o.material.map.dispose(); o.material.map = null; o.material.needsUpdate = true; } });
+      if (g.userData.noSnap) continue;
+      if (vis && g3dGround && !g.userData.snapped) { const y = g3dGround(g.position.x, g.position.z); if (y !== null) { g.position.y = y; g.userData.snapped = true; } }
+      if (!g3dGround && g.userData.snapped) { g.position.y = H(g.position.x, g.position.z); g.userData.snapped = false; }
+    }
+  }
+  // ---------- Real Oakland (Google 3D) state: everything in the scene so far is the OSM-built world
+  const OSM_WORLD = scene.children.filter(o => !o.isLight && o !== scene.userData.dome && o !== sun.target && o !== EXTRA_ROOT);
+  let G3D = null, g3dOn = false;
+  function groundY(x, z, fallback) {
+    if (!g3dOn || !G3D || !G3D.calibrated) return fallback;
+    const y = G3D.groundAt(x, z, Math.max(S.y || 0, fallback) + 2.5);
+    return y === null || Math.abs(y - fallback) > 12 ? fallback : y;
+  }
+
   // ---------- bike and rider
   const bike = { root: new T.Group(), lean: new T.Group(), pitch: new T.Group(), model: null, rider: null, bones: {} };
   scene.add(bike.root); bike.root.add(bike.lean); bike.lean.add(bike.pitch); bike.pitch.position.y = R;
@@ -2204,7 +2417,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       if (Math.hypot(S.vx, S.vz) > 3 && S.t - (S.lastHit || 0) > 0.4) { thud(); S.lastHit = S.t; }
       S.vx *= -0.25; S.vz *= -0.25; S.v *= -0.25;
     } else { S.x = nx; S.z = nz; }
-    const rzz = raisedAt(S.x, S.z), gy = rzz !== null ? rzz : H(S.x, S.z);
+    const rzz = raisedAt(S.x, S.z), gy = groundY(S.x, S.z, rzz !== null ? rzz : H(S.x, S.z));
     const step = gy - S.gy;
     if (step > 0.06 && S.y < gy - 0.02) { S.vy = Math.max(S.vy, Math.sqrt(2 * 9.8 * (step + 0.03))); if (step > 0.3) { S.vx *= 0.8; S.vz *= 0.8; } }
     S.gy = gy;
@@ -2333,7 +2546,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       for (let k = 0; k < 6; k++) { const bx = S.x - f.x * 0.08, bz = S.z - f.z * 0.08; if (blocked(bx, bz) === 'b') break; S.x = bx; S.z = bz; }
     } else { S.x = nx; S.z = nz; }
     // curbs and ledges: hop up when there is a step, drop off edges
-    const rz = raisedAt(S.x, S.z), gy = rz !== null ? rz : H(S.x, S.z) + (sidewalkAt(S.x, S.z) ? 0.18 : 0);
+    const rz = raisedAt(S.x, S.z), gy = groundY(S.x, S.z, rz !== null ? rz : H(S.x, S.z) + (sidewalkAt(S.x, S.z) ? 0.18 : 0));
     const step = gy - S.gy;
     if (step > 0.06 && S.y < gy - 0.02) {
       if (S.v * KMH > 12 || step < 0.2) { S.vy = Math.max(S.vy, Math.sqrt(2 * 9.8 * (step + 0.04))); S.om += 0.3; if (step > 0.3) S.v *= 0.85; }
@@ -2495,7 +2708,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       if (Math.hypot(S.vx, S.vz) > 5 && S.t - (S.lastHit || 0) > 0.4) { thud(); S.lastHit = S.t; }
       S.vx *= -0.25; S.vz *= -0.25; S.v *= -0.25;
     } else { S.x = nx; S.z = nz; }
-    const rzz = raisedAt(S.x, S.z), gy = rzz !== null ? rzz : H(S.x, S.z);
+    const rzz = raisedAt(S.x, S.z), gy = groundY(S.x, S.z, rzz !== null ? rzz : H(S.x, S.z));
     S.gy = gy;
     if (S.y > gy + 0.05 || S.vy > 0) { S.vy -= 9.8 * h; S.y += S.vy * h; if (S.y < gy) { S.y = gy; S.vy = 0; } } else { S.y = gy; S.vy = 0; }
   }
@@ -2909,7 +3122,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function applyLook(night, persist) {
     nightMode = !!night; const mode = nightMode ? 'night' : 'sunset', L = QL[quality], f = L[mode];
     skyMat.map = SKY[mode]; skyMat.needsUpdate = true;
-    scene.fog.color.copy(col(f[0])); scene.fog.near = f[1]; scene.fog.far = f[2]; scene.background.copy(col(f[0]));
+    scene.fog.color.copy(col(f[0])); scene.fog.near = g3dOn ? 260 : f[1]; scene.fog.far = g3dOn ? 1800 : f[2]; scene.background.copy(col(f[0]));
     scene.environment = L.env ? ENV[mode] : null;
     hemi.color.copy(col(nightMode ? '#6376a5' : '#a3b3c8')); hemi.groundColor.copy(col(nightMode ? '#191923' : '#4a403a')); hemi.intensity = nightMode ? 0.48 : 0.78;
     sun.color.copy(col(nightMode ? '#8095d1' : '#ffb36f')); sun.intensity = nightMode ? 0.34 : 1.05;
@@ -2947,6 +3160,48 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     qualityPreference = pref; applyQuality(pref === 'auto' ? autoCeiling : pref);
     for (const btn of document.querySelectorAll('.qbtn')) btn.setAttribute('aria-pressed', String(btn.dataset.q === pref));
     if (persist) try { localStorage.setItem('ride-out-oakland-quality', pref); } catch (e) {}
+    if (G3D) G3D.setQuality(quality);
+  }
+  // ---------- Real Oakland (Google 3D) mode: streams Google Photorealistic 3D Tiles along Lake Merritt and International Blvd
+  const G3D_KEY = (window.ROB_CONFIG || {}).googleMapsApiKey || '';
+  const g3dBtn = document.getElementById('g3dBtn'), g3dAttr = document.getElementById('g3dAttr'), g3dCredits = document.getElementById('g3dCredits');
+  // corridor (game metres): [x, z, y, radius] -- Lake Merritt ring incl. the Boathouse, then International Blvd 1st Ave to 102nd Ave
+  const G3D_CORRIDOR = [[-176, 586, 0, 900]];
+  for (const p of POIS.pois) if (p.k === 'mural') G3D_CORRIDOR.push([p.x, p.z, 0, 300]);
+  for (const w of RD.ways) if (/International B/i.test(w.n)) for (let k = 0; k < w.pts.length; k += 2) { const x = w.pts[k], z = w.pts[k + 1]; if (!G3D_CORRIDOR.some(q => Math.hypot(q[0] - x, q[1] - z) < 120)) G3D_CORRIDOR.push([x, z, 0, 260]); }
+  function waitG3D() { return window.ROB_G3D ? Promise.resolve(window.ROB_G3D) : new Promise((res, rej) => { addEventListener('rob-g3d-ready', () => res(window.ROB_G3D), { once: true }); setTimeout(() => rej(new Error('Google 3D module did not load.')), 20000); }); }
+  const camFar0 = camera.far;
+  function g3dFail(msg) { setG3D(false, false); statusEl.textContent = msg + ' Using the OSM city.'; }
+  async function setG3D(on, persist) {
+    if (on && !G3D_KEY) on = false;
+    g3dOn = on;
+    if (on && !G3D) {
+      try {
+        const mod = await waitG3D();
+        if (!g3dOn) return;
+        const origin = RD.origin || { lat: 37.8075, lon: -122.256 };
+        G3D = mod.create({ apiKey: G3D_KEY, origin, renderer, camera, scene, corridor: G3D_CORRIDOR, quality, onError: g3dFail });
+      } catch (e) { g3dFail(String(e.message || e)); return; }
+    }
+    if (G3D) G3D.visible = on;
+    for (const o of OSM_WORLD) o.visible = !on;
+    g3dAttr.hidden = !on;
+    camera.far = on ? 2500 : camFar0; camera.updateProjectionMatrix();
+    applyLook(nightMode, false);
+    if (!on && G3D) { G3D.dispose(); G3D = null; }
+    g3dBtn.setAttribute('aria-pressed', String(on));
+    if (persist) try { localStorage.setItem('ride-out-oakland-g3d', on ? '1' : '0'); } catch (e) {}
+  }
+  if (G3D_KEY) {
+    document.getElementById('g3dRow').hidden = false;
+    g3dBtn.addEventListener('click', e => { setG3D(!g3dOn, true); e.currentTarget.blur(); });
+  }
+  let g3dCreditT = 0;
+  function g3dFrame(dt) {
+    if (!g3dOn || !G3D) return;
+    if (!G3D.calibrated) { const rz = raisedAt(S.x, S.z); G3D.calibrate(S.x, S.z, rz !== null ? rz : H(S.x, S.z)); }
+    G3D.follow(S.x, S.z); G3D.update();
+    if ((g3dCreditT += dt) > 1) { g3dCreditT = 0; g3dCredits.textContent = G3D.credits(); }
   }
   for (const btn of document.querySelectorAll('.qbtn')) btn.addEventListener('click', () => { selectQuality(btn.dataset.q, true); btn.blur(); });
   document.getElementById('nightBtn').addEventListener('click', e => { applyLook(!nightMode, true); e.currentTarget.blur(); });
@@ -2968,19 +3223,20 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr));
   }
   addEventListener('resize', resize); selectQuality(qualityPreference, false); applyLook(nightMode, false);
+  try { if (G3D_KEY && localStorage.getItem('ride-out-oakland-g3d') === '1') setG3D(true, false); } catch (e) {}
 
   ensureCells(S.x, S.z, 999);
   { const rz = raisedAt(S.x, S.z); S.y = S.gy = rz !== null ? rz : H(S.x, S.z); } camPos.set(S.x - 4, S.y + 1.9, S.z + 4);
   goBtn.disabled = false; if (!statusEl.textContent.startsWith('Using')) statusEl.textContent = '';
   drawDial();
 
-  window.__dbg = { S, H, MAP, respawn, respawnHome, tiles, cells, applyQuality, raisedAt, blocked, RD, bike, inp, T };
+  window.__dbg = { get G3D() { return G3D; }, setG3D, POIS: POIS.pois, BRT, S, H, MAP, respawn, respawnHome, tiles, cells, applyQuality, raisedAt, blocked, RD, bike, inp, T };
   let last = performance.now();
   function loop(now) {
     requestAnimationFrame(loop);
     const dt = Math.min(0.1, (now - last) / 1000); last = now;
     if (document.hidden || S.paused) return;
-    update(dt); autoQuality(dt);
+    update(dt); autoQuality(dt); g3dFrame(dt); updatePOIs(dt, S.x, S.z, g3dOn && G3D && G3D.calibrated ? (x, z) => { const y = G3D.groundAt(x, z, H(x, z) + 40); return y === null || Math.abs(y - H(x, z)) > 15 ? null : y; } : null);
     if (QL[quality].post) composer.render(); else renderer.render(scene, camera);
     window.__perf = renderer.info.render;
   }
