@@ -81,7 +81,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 .util{display:flex;gap:10px;align-items:flex-end;pointer-events:auto}
 @media (max-width:600px){.util{position:fixed;right:max(10px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 124px);flex-direction:column;gap:8px}.util button{width:44px!important;height:44px!important;font-size:12px!important}.pad.main{display:grid;grid-template-columns:auto auto;grid-template-areas:"s gas" "pop gas";gap:8px;align-items:end}.pad.main .b-s{grid-area:s}.pad.main .b-pop{grid-area:pop}.pad.main .b-gas{grid-area:gas}}
 /* phones in landscape: brake + wheelie move to the LEFT thumb, in a row right of the steer pad; gas + util stay right */
-@media (pointer:coarse) and (orientation:landscape){.pad.main .b-s,.pad.main .b-pop{position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 12px)}.pad.main .b-s{left:calc(max(14px,env(safe-area-inset-left,0px)) + 154px)}.pad.main .b-pop{left:calc(max(14px,env(safe-area-inset-left,0px)) + 226px)}.pad.main{display:flex}.util{position:static!important;flex-direction:row!important}}
+@media (pointer:coarse) and (orientation:landscape){.pad.main .b-s,.pad.main .b-pop{position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 12px)}.pad.main .b-s{left:calc(max(14px,env(safe-area-inset-left,0px)) + 154px)}.pad.main .b-pop{left:calc(max(14px,env(safe-area-inset-left,0px)) + 226px)}.pad.main{display:flex}.util{position:static!important;flex-direction:row!important}.tricks{left:max(4px,calc(env(safe-area-inset-left,0px) - 24px))!important}}
+.camtag{position:fixed;z-index:5;left:50%;top:calc(env(safe-area-inset-top,0px) + 14px);transform:translateX(-50%);padding:5px 12px;border-radius:999px;background:rgba(10,14,22,.6);color:#fff;font-weight:700;font-size:14px;pointer-events:none;opacity:0;transition:opacity .25s}.camtag.on{opacity:1}
 .trick{position:fixed;z-index:5;left:50%;top:calc(env(safe-area-inset-top,0px) + 56px);transform:translateX(-50%);text-align:center;pointer-events:none;width:min(92vw,520px)}
 .trick .tn{font-family:var(--display);font-size:clamp(26px,6.5vw,42px);line-height:1;color:var(--gold);text-shadow:0 3px 0 rgba(0,0,0,.4),0 0 20px rgba(255,170,40,.35);text-wrap:balance}
 .trick .ts{margin-top:6px;font-weight:700;font-size:15px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.6);font-variant-numeric:tabular-nums}
@@ -121,7 +122,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       <div><kbd>Space</kbd><span>Wheelie / handbrake</span></div>
       <div><kbd>R</kbd><span>Respawn</span></div>
       <div><kbd>T</kbd><span>Boat house</span></div>
-      <div><kbd>C</kbd><span>Camera</span></div>
+      <div><kbd>C</kbd><span>Cycle camera</span></div>
       <div><kbd>F</kbd><span>Switch ride</span></div>
       <div><kbd>1</kbd><kbd>4</kbd><span>Wheelie tricks</span></div>
     </div>
@@ -2555,7 +2556,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   })();
 
   // ---------- state
-  const S = { state: 'menu', x: MAP.spawn[0], z: MAP.spawn[1], yaw: MAP.spawn[2], y: 0, gy: 0, vy: 0, walk: false, v: 0, th: 0, om: 0, thr: 0, st: 0, gear: 1, cam: 'third', paused: false, crash: null, respawnAt: 0, t: 0, mode: 'bike', vx: 0, vz: 0, vr: 0, cacc: 0 };
+  const S = { state: 'menu', x: MAP.spawn[0], z: MAP.spawn[1], yaw: MAP.spawn[2], y: 0, gy: 0, vy: 0, walk: false, v: 0, th: 0, om: 0, thr: 0, st: 0, gear: 1, cam: 'third', camMode: 'chase', camBlend: 1, paused: false, crash: null, respawnAt: 0, t: 0, mode: 'bike', vx: 0, vz: 0, vr: 0, cacc: 0 };
   const inp = { gas: false, brake: false, left: false, right: false, hb: false };
   let popQueued = false;
 
@@ -3059,7 +3060,12 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   addEventListener('keyup', e => { const k = KEYS[e.code]; if (k) inp[k] = false; if (e.code === 'Space') inp.hb = false; });
   addEventListener('blur', () => { for (const k in inp) inp[k] = false; });
   const camBtn = document.getElementById('camBtn'), pauseBtn = document.getElementById('pauseBtn'), goBtn = document.getElementById('go'), panel = document.getElementById('panel');
-  function toggleCam() { S.cam = S.cam === 'third' ? 'first' : 'third'; camBtn.blur(); }
+  const CAMS = ['chase', 'far', 'low', 'side', 'front', 'helmet', 'drone', 'orbit'], CAMN = { chase: 'Chase', far: 'Far chase', low: 'Low chase', side: 'Side tracking', front: 'Front facing', helmet: 'Helmet', drone: 'High drone', orbit: 'Cinematic orbit' };
+  const camTag = document.createElement('div'); camTag.className = 'camtag'; document.body.appendChild(camTag); let camTagT = 0;
+  function setCam(m, show) { S.camMode = CAMS.includes(m) ? m : 'chase'; S.cam = S.camMode === 'helmet' ? 'first' : 'third'; S.camBlend = 0; try { localStorage.setItem('rob-cam', S.camMode); } catch (e) {}
+    if (show) { camTag.textContent = '\u{1F3A5} ' + CAMN[S.camMode]; camTag.classList.add('on'); clearTimeout(camTagT); camTagT = setTimeout(() => camTag.classList.remove('on'), 1400); } }
+  function toggleCam() { setCam(CAMS[(CAMS.indexOf(S.camMode) + 1) % CAMS.length], true); camBtn.blur(); }
+  try { setCam(localStorage.getItem('rob-cam') || 'chase', false); } catch (e) { setCam('chase', false); }
   camBtn.addEventListener('click', toggleCam);
   function togglePause() {
     if (S.state === 'menu') return;
@@ -3324,7 +3330,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   }
 
   // ---------- frame update
-  const camPos = new T.Vector3(), camLook = new T.Vector3(), tmp = new T.Vector3(), up = new T.Vector3();
+  const camPos = new T.Vector3(), camLook = new T.Vector3(), camLookS = new T.Vector3(), camTgt = new T.Vector3(), tmp = new T.Vector3(), up = new T.Vector3();
   let FRAME = 0;
   function update(dt) {
     S.t += dt; FRAME++;
@@ -3425,6 +3431,22 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       s.sp.scale.set(sc, sc, 1); s.sp.material.opacity = Math.max(0, s.life) * 0.28; if (s.life <= 0) s.sp.visible = false;
     }
 
+    // third-person camera rig: k scales distances (car bigger than bike); blends smoothly after a mode switch
+    function rigCam(dt, k, f, base) {
+      const m = S.camMode, x = S.x, y = S.y, z = S.z, sx = -f.z, sz = f.x; let d, h, lk = 2.5, lh = 1.15, rate = base;
+      if (m === 'far') { d = 9 * k; h = 3.6 * k; lk = 4; }
+      else if (m === 'low') { d = 3.4 * k; h = 0.55 * k; lh = 0.9; rate = base * 1.2; }
+      else if (m === 'side') { tmp.set(x + sx * 5.2 * k + f.x * 0.6, y + 1.3 * k, z + sz * 5.2 * k + f.z * 0.6); lk = 0.6; lh = 0.9; }
+      else if (m === 'front') { tmp.set(x + f.x * 5 * k, y + 1.5 * k, z + f.z * 5 * k); lk = 0; lh = 1.0; }
+      else if (m === 'drone') { d = 9 * k; h = 13 * k; lk = 5; lh = 0; rate = base * 0.5; }
+      else if (m === 'orbit') { const a = S.t * 0.35; tmp.set(x + Math.sin(a) * 6.5 * k, y + 2.4 * k + Math.sin(S.t * 0.23) * 0.8, z + Math.cos(a) * 6.5 * k); lk = 0.5; lh = 1.0; rate = base * 0.6; }
+      else { d = 4.6 * k; h = 2.05 * k; }
+      if (d !== undefined) tmp.set(x - f.x * d, y + h, z - f.z * d);
+      tmp.y = Math.max(tmp.y, H(tmp.x, tmp.z) + (m === 'low' ? 0.35 : 1.0));
+      S.camBlend = Math.min(1, (S.camBlend || 0) + dt * 1.6); const r = S.camBlend < 1 ? Math.min(rate, 3) : rate;
+      camPos.lerp(tmp, 1 - Math.exp(-dt * r)); camera.position.copy(camPos); camera.up.set(0, 1, 0);
+      camTgt.set(x + f.x * lk, y + lh, z + f.z * lk); camLookS.lerp(camTgt, 1 - Math.exp(-dt * (S.camBlend < 1 ? 5 : 14))); camera.lookAt(camLookS);
+    }
     // camera: headlights come off in the rider's-eye view so they don't block the road
     { const fp = S.cam === 'first' && S.state === 'ride'; if (bike.hl) bike.hl.visible = S.mode === 'bike' && !fp; grom.lamp.visible = !fp; }
     if (riderSkinned) bike.bones.Head.scale.setScalar(1);
@@ -3436,9 +3458,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
         const cfp = car.fp || [-0.38, 1.25, 0.08]; camera.position.copy(car.root.localToWorld(tmp.set(cfp[0], cfp[1], cfp[2]))); camPos.copy(camera.position);
         camera.up.set(0, 1, 0); camera.lookAt(car.root.localToWorld(camLook.set(cfp[0], cfp[1] - 0.25, -10)));
       } else {
-        tmp.set(S.x - f.x * 7.2, Math.max(S.y + 2.8, H(S.x - f.x * 7.2, S.z - f.z * 7.2) + 2.0), S.z - f.z * 7.2);
-        camPos.lerp(tmp, 1 - Math.exp(-dt * 6)); camera.position.copy(camPos); camera.up.set(0, 1, 0);
-        camera.lookAt(S.x + f.x * 3, S.y + 1.1, S.z + f.z * 3);
+        rigCam(dt, 1.5, f, 6);
       }
     } else if (S.state === 'crash' && bike.rider) {
       const rp = bike.rider.position;
@@ -3449,18 +3469,17 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       const head = riderSkinned ? bike.bones.Head.getWorldPosition(tmp) : bike.pitch.localToWorld(tmp.set(0, 1.55, -0.7));
       up.set(0, 1, 0).applyQuaternion(bike.pitch.getWorldQuaternion(q0));
       const fw = V(0, 0, -1).applyQuaternion(q0);
-      camera.position.copy(head).addScaledVector(up, 0.12).addScaledVector(fw, 0.04);
-      camPos.copy(camera.position);
+      tmp.copy(head).addScaledVector(up, 0.12).addScaledVector(fw, 0.04);
+      S.camBlend = Math.min(1, (S.camBlend || 0) + dt * 2.5); if (S.camBlend < 1) camPos.lerp(tmp, 1 - Math.exp(-dt * 8)); else camPos.copy(tmp);
+      camera.position.copy(camPos);
       camLook.copy(camera.position).addScaledVector(fw, 10).addScaledVector(up, -4.6);
-      camera.up.copy(up); camera.lookAt(camLook);
+      camera.up.copy(up); camLookS.copy(camLook); camera.lookAt(camLook);
     } else if (S.state === 'menu') {
       const a = Math.sin(S.t * 0.2) * 0.9 + 0.5;
       tmp.set(S.x + Math.sin(S.yaw + a) * 5, S.y + 1.9, S.z + Math.cos(S.yaw + a) * 5);
       camPos.lerp(tmp, 1 - Math.exp(-dt * 2)); camera.position.copy(camPos); camera.up.set(0, 1, 0); camera.lookAt(S.x, S.y + 1, S.z);
     } else {
-      tmp.set(S.x - f.x * 4.6, Math.max(S.y + 2.05, H(S.x - f.x * 4.6, S.z - f.z * 4.6) + 1.3), S.z - f.z * 4.6);
-      camPos.lerp(tmp, 1 - Math.exp(-dt * 10)); camera.position.copy(camPos); camera.up.set(0, 1, 0);
-      camera.lookAt(S.x + f.x * 2.5, S.y + 1.15, S.z + f.z * 2.5);
+      rigCam(dt, 1, f, 10);
     }
     const fov = (camera.aspect < 1 ? 74 : 60) + (S.cam === 'first' && S.state === 'ride' ? (S.mode === 'car' ? 8 : 16) : 0);
     if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = fov; camera.updateProjectionMatrix(); }
