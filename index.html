@@ -198,11 +198,24 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
   const view = document.getElementById('view');
   const renderer = new T.WebGLRenderer({ canvas: view, antialias: true, powerPreference: 'high-performance' });
   // phones drop city geometry from CPU memory after upload, so a lost context can't be rebuilt in place: start over instead
-  view.addEventListener('webglcontextlost', () => { if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || matchMedia('(pointer: coarse)').matches) setTimeout(() => location.reload(), 300); });
+  view.addEventListener('webglcontextlost', () => { if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || matchMedia('(pointer: coarse)').matches) { try { const s = window.__S; if (s && s.state !== 'menu') sessionStorage.setItem('rob-resume', JSON.stringify({ x: s.x, z: s.z, yaw: s.yaw, t: Date.now() })); } catch (e) {} setTimeout(() => location.reload(), 300); } });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
   renderer.outputEncoding = T.sRGBEncoding;
   renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
   const scene = new T.Scene();
+  window.__R = renderer; window.__scene = scene; // read-only handles for automated memory tests
+  // phones: loaded image textures are shrunk once: colour maps to 1024, detail maps (normal/roughness/...) and the
+  // side rides (cars, quad, Grom, which stay loaded) to 512
+  const TEXCAP = 1024, texCapped = new WeakSet();
+  function capTextures() {
+    const side = new Set(); try { for (const r of [car.root, quad.root, grom.root]) if (r) r.traverse(o => side.add(o)); } catch (e) {}
+    scene.traverse(o => { const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : []; for (const m of ms) for (const k in m) { const t = m[k];
+      if (!t || !t.isTexture || texCapped.has(t)) continue; const im = t.image; if (!im || !im.width) continue; texCapped.add(t);
+      const cap = side.has(o) || (k !== 'map' && k !== 'emissiveMap') ? 512 : TEXCAP;
+      if (im instanceof HTMLCanvasElement || !(im.width > cap || im.height > cap)) continue;
+      const sc = cap / Math.max(im.width, im.height), c = document.createElement('canvas'); c.width = Math.round(im.width * sc); c.height = Math.round(im.height * sc);
+      c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); if (im.close) im.close(); t.image = c; t.dispose(); t.needsUpdate = true; } });
+  }
   const camera = new T.PerspectiveCamera(60, 1, 0.05, 900);
   const FOG = '#64656d';
   scene.fog = new T.Fog(FOG, 52, 205);
@@ -219,6 +232,8 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
   const managedTextures = new Set();
   let textureAnisotropy = Math.min(8, maxAnisotropy);
   function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; }
+  // same logical size, fewer real pixels: draws in w x h coordinates onto a canvas k times smaller (phones)
+  function makeCanvasK(w, h, k) { if (k === 1) return makeCanvas(w, h); const [c, x] = makeCanvas(Math.round(w * k), Math.round(h * k)); x.scale(k, k); return [c, x]; }
   function finishTexture(t, color, repeat) {
     if (color) t.encoding = T.sRGBEncoding;
     if (repeat) t.wrapS = t.wrapT = T.RepeatWrapping;
@@ -387,9 +402,10 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
   const STORE_GLASS_LOW = new T.MeshLambertMaterial({ color: col('#344552'), emissive: col('#10171c'), emissiveIntensity: 0.08 });
   STORE_GLASS.userData = { lowPeer: STORE_GLASS_LOW, noShadow: true }; STORE_GLASS_LOW.userData = { pbrPeer: STORE_GLASS, noShadow: true };
   const LOWMEM = matchMedia('(pointer: coarse)').matches || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  if (LOWMEM) setInterval(capTextures, 1500);
   // Sign atlas: shop signs, murals, taco sign and street-name plates all live on one texture
   const ATLAS_W = 4096, ATLAS_H = 4096;
-  const [atlasC, ax] = makeCanvas(ATLAS_W, ATLAS_H);
+  const [atlasC, ax] = makeCanvasK(ATLAS_W, ATLAS_H, LOWMEM ? 0.5 : 1);
   const cur = { x: 0, y: 0, rowH: 0 };
   function slot(w, h) { if (cur.x + w > ATLAS_W) { cur.x = 0; cur.y += cur.rowH + 4; cur.rowH = 0; } const r = { x: cur.x, y: cur.y, w, h }; cur.x += w + 4; cur.rowH = Math.max(cur.rowH, h); return r; }
   function rectTok(r) { return { userData: { atlas: [(r.x + 1) / ATLAS_W, 1 - (r.y + r.h - 1) / ATLAS_H, (r.x + r.w - 1) / ATLAS_W, 1 - (r.y + 1) / ATLAS_H] } }; }
@@ -429,7 +445,7 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
   const ATLAS = new T.MeshBasicMaterial({ map: tex(atlasC), side: T.DoubleSide });
   if (LOWMEM) { ATLAS.map.generateMipmaps = false; ATLAS.map.minFilter = T.LinearFilter; }
   // ---------- street art: graffiti pieces, throw-ups, tag walls and billboard ads, all on their own atlas
-  const ART = { W: LOWMEM ? 2048 : 4096, H: LOWMEM ? 2048 : 4096, x: 0, y: 0, rowH: 0 }, ARTK = ART.W / 4096;
+  const ART = { W: LOWMEM ? 1024 : 4096, H: LOWMEM ? 1024 : 4096, x: 0, y: 0, rowH: 0 }, ARTK = ART.W / 4096;
   const [artC, artX] = makeCanvas(ART.W, ART.H);
   function artSlot(w, h) { if (ART.x + w > ART.W) { ART.x = 0; ART.y += ART.rowH + 6; ART.rowH = 0; } const r = { x: ART.x, y: ART.y, w, h }; ART.x += w + 6; ART.rowH = Math.max(ART.rowH, h); return r; }
   function artTok(r, kind) { return { userData: { art: kind, atlas: [(r.x + 1) / ART.W, 1 - (r.y + r.h - 1) / ART.H, (r.x + r.w - 1) / ART.W, 1 - (r.y + 1) / ART.H] }, ar: r.w / r.h }; }
@@ -1024,7 +1040,7 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
 
   // ---------- street-name plates, arrows and markings atlas
   const SN = { W: 2048, H: 2048, x: 0, y: 0, rowH: 0 };
-  const [snC, snX] = makeCanvas(SN.W, SN.H);
+  const [snC, snX] = makeCanvasK(SN.W, SN.H, LOWMEM ? 0.5 : 1);
   const STREET_PLATE = new Map();
   function streetPlate(name) {
     if (STREET_PLATE.has(name)) return STREET_PLATE.get(name);
@@ -1246,7 +1262,7 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
   }
   // prop sprites: one atlas, one camera-facing shader, merged per tile
   const PA = { W: 2048, H: 2048, x: 0, y: 0, rowH: 0 };
-  const [paC, paX] = makeCanvas(PA.W, PA.H);
+  const [paC, paX] = makeCanvasK(PA.W, PA.H, LOWMEM ? 0.5 : 1);
   const PROPS = {};
   for (const [n, hgt] of [['prop_dumpster', 1.5], ['prop_bench', 1.0], ['prop_hydrant', 0.85], ['prop_barrier', 1.1], ['prop_cone', 0.75], ['prop_cruiser', 4.9]]) {
     const im = FK[n]; if (!im) continue;
@@ -2568,6 +2584,9 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
 
   // ---------- state
   const S = { state: 'menu', x: MAP.spawn[0], z: MAP.spawn[1], yaw: MAP.spawn[2], y: 0, gy: 0, vy: 0, walk: false, v: 0, th: 0, om: 0, thr: 0, st: 0, gear: 1, cam: 'third', camMode: 'chase', camBlend: 1, paused: false, crash: null, respawnAt: 0, t: 0, mode: 'bike', vx: 0, vz: 0, vr: 0, cacc: 0 };
+  window.__S = S; // read-only handle for automated ride tests
+  // after a phone's graphics reset (context lost -> reload) pick up where the rider was instead of back at the boat house
+  try { const r = JSON.parse(sessionStorage.getItem('rob-resume') || 'null'); sessionStorage.removeItem('rob-resume'); if (r && Date.now() - r.t < 120000 && isFinite(r.x)) { S.x = r.x; S.z = r.z; S.yaw = r.yaw; S.resumed = true; } } catch (e) {}
   const inp = { gas: false, brake: false, left: false, right: false, hb: false };
   let popQueued = false;
 
