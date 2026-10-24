@@ -2743,19 +2743,21 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   // second dirt bike: the user's blue Monster Energy YZ from its own model, ridden with the same bike physics
   const bike2 = { root: null, dw: null, R0: 0.33, seat: [0, 0.6, -0.354], ok: false, failed: false };
   let bike2Load = null;
-  // third dirt bike: E's favourite raw TRELLIS Yamaha YZ125 (floor disc removed, real ~2.2 m size, wheels cut out as wheel_R/wheel_F)
+  // third dirt bike: Rodin Yamaha YZ125 from Form Studio (20k tris, de-lit texture, real ~2.25 m size); wheel_R / wheel_F spin,
+  // steer_F turns about the raked steering axis and carries the fork, bars and front wheel. Old TRELLIS model: models/rob_yz_trellis.glb
   const bike3 = { root: null, dw: null, R0: 0.3795, seat: [0, 0.79, -0.4], ok: false, failed: false };
   let bike3Load = null;
   function ensureBike3() { return bike3Load || (bike3Load = (async () => {
     try {
       const g = await load('models/rob_yz.glb'), m = g.scene; let wr = null, wf = null;
       upgradeModelMaterials(m, 'vehicle');
-      m.traverse(o => { if (o.isMesh) o.castShadow = true; if (o.name === 'wheel_R') wr = o; if (o.name === 'wheel_F') wf = o; });
+      let sf = null;
+      m.traverse(o => { if (o.isMesh) o.castShadow = true; if (o.name === 'wheel_R') wr = o; if (o.name === 'wheel_F') wf = o; if (o.name === 'steer_F') sf = o; });
       // model faces +z, sits on y=0, rear axle at (0, 0.3795, -0.7109): face -z and sit that axle on the rig's pivot
       m.rotation.y = Math.PI; m.position.set(0, -0.3795, -0.7109);
       const holder = new T.Group(); holder.add(m); holder.visible = false; bike.pitch.add(holder);
-      if (wf) wf.rotation.order = 'YXZ';
-      bike3.root = holder; bike3.dw = { rear: wr, front: wf, steer: null, R: 0.3795 }; bike3.ok = true;
+      if (wf && !sf) wf.rotation.order = 'YXZ';
+      bike3.root = holder; bike3.dw = { rear: wr, front: wf, steer: sf, R: 0.3795 }; bike3.ok = true;
       if (S.mode === 'bike' && S.bv === 2) { setRideVisuals(); seatRider(); }
     } catch (e) { console.warn('ROB YZ failed to load', e); bike3.failed = true; }
   })()); }
@@ -3514,7 +3516,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     const map = arr => arr.filter(Boolean).map(o => follow(c, pathTo(src, o))).filter(Boolean);
     if (m === 'bike' && bike.dw) { spin = map([bike.dw.rear, bike.dw.front]); steer = map([bike.dw.front]); }
     if (m === 'bike2' && bike2.dw) { spin = map([bike2.dw.rear, bike2.dw.front]); steer = map([bike2.dw.steer || bike2.dw.front]); }
-    if (m === 'bike3' && bike3.dw) { spin = map([bike3.dw.rear, bike3.dw.front]); steer = map([bike3.dw.front]); }
+    if (m === 'bike3' && bike3.dw) { spin = map([bike3.dw.rear, bike3.dw.front]); steer = map([bike3.dw.steer || bike3.dw.front]); }
     if (m === 'grom') { spin = map([grom.rear, grom.front]); steer = map([grom.steer]); }
     if (m === 'quad') { spin = map(quad.wheels); steer = map(quad.front); }
     if (m === 'car') { const M = car.models.g35; spin = map(M ? M.spin : car.spin); steer = map(M ? M.steer : car.steer); }
