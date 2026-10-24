@@ -2749,7 +2749,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   let bike3Load = null;
   function ensureBike3() { return bike3Load || (bike3Load = (async () => {
     try {
-      const g = await load('models/rob_yz.glb'), m = g.scene; let wr = null, wf = null;
+      const g = await load(LOWMEM ? 'models/m/rob_yz.glb' : 'models/rob_yz.glb'), m = g.scene; let wr = null, wf = null;
       upgradeModelMaterials(m, 'vehicle');
       let sf = null;
       m.traverse(o => { if (o.isMesh) o.castShadow = true; if (o.name === 'wheel_R') wr = o; if (o.name === 'wheel_F') wf = o; if (o.name === 'steer_F') sf = o; });
@@ -2768,7 +2768,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   let bike4Load = null;
   function ensureBike4() { return bike4Load || (bike4Load = (async () => {
     try {
-      const g = await load('models/rob_crf150r.glb'), m = g.scene; let wr = null, wf = null;
+      const g = await load(LOWMEM ? 'models/m/rob_crf150r.glb' : 'models/rob_crf150r.glb'), m = g.scene; let wr = null, wf = null;
       upgradeModelMaterials(m, 'vehicle');
       let sf = null;
       m.traverse(o => { if (o.isMesh) o.castShadow = true; if (o.name === 'wheel_R') wr = o; if (o.name === 'wheel_F') wf = o; if (o.name === 'steer_F') sf = o; });
@@ -2787,7 +2787,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   let bike5Load = null;
   function ensureBike5() { return bike5Load || (bike5Load = (async () => {
     try {
-      const g = await load('models/rob_ultrabee.glb'), m = g.scene; let wr = null, wf = null;
+      const g = await load(LOWMEM ? 'models/m/rob_ultrabee.glb' : 'models/rob_ultrabee.glb'), m = g.scene; let wr = null, wf = null;
       upgradeModelMaterials(m, 'vehicle');
       let sf = null;
       m.traverse(o => { if (o.isMesh) o.castShadow = true; if (o.name === 'wheel_R') wr = o; if (o.name === 'wheel_F') wf = o; if (o.name === 'steer_F') sf = o; });
@@ -2816,6 +2816,23 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       if (S.mode === 'bike' && S.bv) { setRideVisuals(); seatRider(); }
     } catch (e) { bike2.failed = true; }
   })()); }
+  // phones (iOS kills the tab when WebGL memory runs out): only the bike being ridden stays in memory.
+  // Others are disposed (geometry, materials, textures) after a switch and lazy-load again next time.
+  function disposeTree(root) {
+    root.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      for (const m of [].concat(o.material || [])) { for (const k in m) { const v = m[k]; if (v && v.isTexture && k !== 'envMap') v.dispose(); } m.dispose(); }
+    });
+    if (root.parent) root.parent.remove(root);
+  }
+  function unloadIdleBikes() {
+    if (!LOWMEM) return; const cur = curRide();
+    if (cur !== 'bike2' && bike2.ok && bike2.root) { disposeTree(bike2.root); bike2.root = null; bike2.dw = null; bike2.ok = false; bike2Load = null; }
+    if (cur !== 'bike3' && bike3.ok && bike3.root) { disposeTree(bike3.root); bike3.root = null; bike3.dw = null; bike3.ok = false; bike3Load = null; }
+    if (cur !== 'bike4' && bike4.ok && bike4.root) { disposeTree(bike4.root); bike4.root = null; bike4.dw = null; bike4.ok = false; bike4Load = null; }
+    if (cur !== 'bike5' && bike5.ok && bike5.root) { disposeTree(bike5.root); bike5.root = null; bike5.dw = null; bike5.ok = false; bike5Load = null; }
+    if (typeof RIG !== 'undefined') RIG.cache.clear();
+  }
   function rideNote(t) { trickToast(t, ''); TR.hideAt = S.t + 2.2; }
   function setRideVisuals() {
     if (typeof RIG !== 'undefined') RIG.cache.clear();
@@ -2846,7 +2863,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     const f = forward(S.yaw); S.vx = f.x * S.v; S.vz = f.z * S.v; S.vr = 0;
     S.th = 0; S.om = 0; S.st = 0; S.thr = 0; popQueued = false;
     if (!toCar) { S.v = Math.max(0, S.v); S.gear = 1; }
-    setRideVisuals();
+    setRideVisuals(); unloadIdleBikes();
     if (!toCar) { seatRider(); S.lastLean = -1; }
     lastDial = '';
   }
