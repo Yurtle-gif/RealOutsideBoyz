@@ -3128,7 +3128,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   // steer_F node are stored in that node's frame so the arms follow the bars when steering.
   const SIDECAM = /[?&]cam=side/.test(location.search);
   var RIG = { cache: new Map() }; const ikA = new T.Vector3(), ikB = new T.Vector3(), ikC = new T.Vector3(), ikT = new T.Vector3(), ikP = new T.Vector3(), ikD = new T.Vector3(), ikE = new T.Vector3();
-  const RS = { stand: 0, comp: 0, dab: 0, airPrev: false, hip: new T.Vector3(), vyPrev: 0, wt: 0, wh: 0, ws: 0, standKey: false, bigLean: 0, nextLean: 4, arm: 0, armMode: 0, nextArm: 3, kick: 0, nextKick: 2.5 };
+  const RS = { stand: 0, comp: 0, dab: 0, airPrev: false, hip: new T.Vector3(), vyPrev: 0, wt: 0, wh: 0, ws: 0, standKey: false, bigLean: 0, nextLean: 4, arm: 0, armMode: 0, nextArm: 3, kick: 0, nextKick: 2.5, hipS: new T.Vector3(), vPrev: 0, lp: 0, lpv: 0, lr: 0, lrv: 0, bz: 0, bzv: 0, fid: { y: 0, p: 0, r: 0, ty: 0, tp: 0, tr: 0, next: 1.5 } };
   function curBikeRig() {
     const k = S.mode === 'bike' ? 'b' + (S.bv || 0) : S.mode; if (RIG.cache.has(k)) return RIG.cache.get(k);
     const b = S.mode !== 'bike' ? null : S.bv === 4 ? bike5 : S.bv === 3 ? bike4 : S.bv === 2 ? bike3 : S.bv === 1 ? bike2 : null;
@@ -3180,7 +3180,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     const standT = clamp((air ? 1 : 0) + clamp((bump - 6) / 20, 0, 1) + clamp((sp - 22) / 10, 0, 0.6), 0, 1) * (S.th > 0.28 ? 0.2 : 1);
     RS.stand += (standT - RS.stand) * (standT > RS.stand ? k : k * 0.35);
     if (RS.airPrev && !air) RS.comp = 1; RS.airPrev = air; RS.comp = Math.max(0, RS.comp - dt * 2.5);   // landing: soak it up
-    const dabT = sp < 1.2 && !air && S.th < 0.1 ? 1 : 0; RS.dab += (dabT - RS.dab) * k;
+    const dabT = sp < 1.2 && !air && S.th < 0.1 ? 1 : 0; RS.dab += (dabT - RS.dab) * (1 - Math.exp(-dt * 3.5));
     const wheelie = clamp(S.th / 1.0, 0, 1), turn = clamp(S.st * clamp(sp / 10, 0, 1), -1, 1);
     // ---- street-wheelie choreography (hand-keyed from Eric's reference ride)
     // seated 12 o'clock by default; standing (feet on seat + rear fender) on G or after ~4 s up; left arm sometimes leaves the bar
@@ -3199,9 +3199,26 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     const whS = RS.wh * (1 - RS.ws), whU = RS.wh * RS.ws;
     // hips: up/forward when standing, back on wheelies, down on landings, inward in turns
     RS.hip.set(turn * 0.07 + (sway * 0.4 - leanL * 0.08) * RS.wh, RS.stand * 0.2 * (1 - RS.wh) - Math.sin(RS.comp * Math.PI) * 0.12 + whU * 0.42, -RS.stand * 0.1 * (1 - RS.wh) + whS * 0.16 + whU * 0.3);
-    rd.position.add(RS.hip.clone().multiplyScalar(1 - trickW));
+    // ---- secondary motion (spring-damped): upper body lags the bike, bounces on bumps/landings
+    const acc = (S.v - RS.vPrev) / Math.max(dt, 1e-3); RS.vPrev = S.v; const h2 = Math.min(dt, 0.05);
+    const spring = (x, v, drive, kk, c) => { const a2 = -kk * x - c * v + drive; v += a2 * h2; x += v * h2; return [x, v]; };
+    [RS.lp, RS.lpv] = spring(RS.lp, RS.lpv, fresh ? 0 : clamp(-acc * 0.9, -12, 12), 60, 9);            // fore-aft: thrown back on gas, forward on brakes
+    [RS.lr, RS.lrv] = spring(RS.lr, RS.lrv, fresh ? 0 : turn * sp * 0.6, 50, 8);                        // sideways: lags into turns
+    [RS.bz, RS.bzv] = spring(RS.bz, RS.bzv, fresh ? 0 : clamp(-bump * 0.25, -30, 30) - RS.comp * 25, 120, 11);   // bounce
+    // idle fidgets so he's never frozen: small random head turns, nods and shoulder shifts, eased in and out
+    const F = RS.fid; F.next -= dt; if (F.next <= 0) { F.ty = (Math.random() - 0.5) * 0.5; F.tp = (Math.random() - 0.5) * 0.18; F.tr = (Math.random() - 0.5) * 0.12; F.next = 1.8 + Math.random() * 3.5; }
+    const fk = 1 - Math.exp(-dt * 2.2); F.y += (F.ty - F.y) * fk; F.p += (F.tp - F.p) * fk; F.r += (F.tr - F.r) * fk;
+    RS.hip.y += clamp(RS.bz, -0.08, 0.06);
+    // ease the whole hip offset so seated / standing / wheelie never snap
+    if (fresh) RS.hipS.copy(RS.hip); else RS.hipS.lerp(RS.hip, 1 - Math.exp(-dt * 8));
+    rd.position.add(RS.hipS.clone().multiplyScalar(1 - trickW));
     // upper body: lean into the turn and forward when standing, back on wheelies
     const sp2 = bike.bones.Spine01; if (sp2) { const q = new T.Quaternion().setFromEuler(new T.Euler((RS.stand * 0.35 * (1 - RS.wh) - whS * 0.55 + whU * 0.2 + RS.comp * 0.3) * (1 - trickW), 0, (turn * 0.25 + (sway + leanL * 0.45) * RS.wh) * (1 - trickW))); sp2.quaternion.multiply(q); }
+    { const tw = 1 - trickW, breath = Math.sin(S.t * 1.5) * 0.018, lp = clamp(RS.lp, -0.35, 0.35), lr = clamp(RS.lr, -0.3, 0.3);
+      const add = (bn, x, y, z) => { const b = bike.bones[bn]; if (b) b.quaternion.multiply(new T.Quaternion().setFromEuler(new T.Euler(x * tw, y * tw, z * tw))); };
+      add('Spine', lp * 0.35, 0, lr * 0.4); add('Spine02', lp * 0.25 + breath, 0, lr * 0.25 + F.r);
+      // head stays level-ish (counter the lean), looks toward the turn, plus fidgets
+      add('neck', -lp * 0.3 + F.p * 0.5, turn * 0.25 + F.y * 0.5, -lr * 0.5); add('Head', F.p * 0.5 - breath * 0.5, turn * 0.3 + F.y * 0.5, -lr * 0.3); }
     rd.updateMatrixWorld(true); bike.pitch.updateMatrixWorld(true);
     const W = 1 - trickW, toW = v => bike.pitch.localToWorld(v.clone());
     for (let i = 0; i < 2; i++) {
