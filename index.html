@@ -2762,7 +2762,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     } catch (e) { console.warn('ROB YZ failed to load', e); bike3.failed = true; }
   })()); }
   // fourth dirt bike: Rodin Honda CRF150R from Form Studio, same rig as ROB YZ (wheel_R / wheel_F spin, steer_F steers)
-  const bike4 = { root: null, dw: null, R0: 0.3795, seat: [0, 0.79, -0.4], ok: false, failed: false };
+  // real-size CRF150R against the ~1.75 m rider (hips 1.03 m): model is 2.238 m long / seat 1.07 m as built, x0.83 -> 1.86 m long, seat ~0.89 m, wheel R 0.315
+  const CRF_K = 0.83;
+  const bike4 = { root: null, dw: null, R0: 0.3795 * CRF_K, seat: [0, 0.573 + 0.1, (0.3 - 0.7109) * CRF_K], ok: false, failed: false };
   let bike4Load = null;
   function ensureBike4() { return bike4Load || (bike4Load = (async () => {
     try {
@@ -2771,10 +2773,10 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       let sf = null;
       m.traverse(o => { if (o.isMesh) o.castShadow = true; if (o.name === 'wheel_R') wr = o; if (o.name === 'wheel_F') wf = o; if (o.name === 'steer_F') sf = o; });
       // model faces +z, sits on y=0, rear axle at (0, 0.3795, -0.7109): face -z and sit that axle on the rig's pivot
-      m.rotation.y = Math.PI; m.position.set(0, -0.3795, -0.7109);
+      m.scale.setScalar(CRF_K); m.rotation.y = Math.PI; m.position.set(0, -0.3795 * CRF_K, -0.7109 * CRF_K);
       const holder = new T.Group(); holder.add(m); holder.visible = false; bike.pitch.add(holder);
       if (wf && !sf) wf.rotation.order = 'YXZ';
-      bike4.root = holder; bike4.dw = { rear: wr, front: wf, steer: sf, R: 0.3795 }; bike4.ok = true;
+      bike4.root = holder; bike4.dw = { rear: wr, front: wf, steer: sf, R: 0.3795 * CRF_K }; bike4.ok = true;
       if (S.mode === 'bike' && S.bv === 3) { setRideVisuals(); seatRider(); }
     } catch (e) { console.warn('CRF150R failed to load', e); bike4.failed = true; }
   })()); }
