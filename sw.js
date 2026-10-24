@@ -1,5 +1,5 @@
 // Real Outside Boyz offline cache: the page is network-first so updates arrive, everything else cache-first after the first play.
-const CACHE = 'rob-v21';
+const CACHE = 'rob-v22';
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'])));
