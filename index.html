@@ -183,6 +183,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   // ---------- renderer
   const view = document.getElementById('view');
   const renderer = new T.WebGLRenderer({ canvas: view, antialias: true, powerPreference: 'high-performance' });
+  // phones drop city geometry from CPU memory after upload, so a lost context can't be rebuilt in place: start over instead
+  view.addEventListener('webglcontextlost', () => { if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || matchMedia('(pointer: coarse)').matches) setTimeout(() => location.reload(), 300); });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
   renderer.outputEncoding = T.sRGBEncoding;
   renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
@@ -370,6 +372,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   const STORE_GLASS = new T.MeshStandardMaterial({ color: col('#344552'), roughness: 0.28, metalness: 0.02, envMapIntensity: 0.55, emissive: col('#182027'), emissiveIntensity: 0.08 });
   const STORE_GLASS_LOW = new T.MeshLambertMaterial({ color: col('#344552'), emissive: col('#10171c'), emissiveIntensity: 0.08 });
   STORE_GLASS.userData = { lowPeer: STORE_GLASS_LOW, noShadow: true }; STORE_GLASS_LOW.userData = { pbrPeer: STORE_GLASS, noShadow: true };
+  const LOWMEM = matchMedia('(pointer: coarse)').matches || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
   // Sign atlas: shop signs, murals, taco sign and street-name plates all live on one texture
   const ATLAS_W = 4096, ATLAS_H = 4096;
   const [atlasC, ax] = makeCanvas(ATLAS_W, ATLAS_H);
@@ -410,8 +413,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   for (const n of EW_NAMES.concat(NS_NAMES)) streetSign.set(n, drawSign(n, '#1d6b45', '#f4f4ef', 512, 112, true));
   function streetSignMat(name) { return streetSign.get(name); }
   const ATLAS = new T.MeshBasicMaterial({ map: tex(atlasC), side: T.DoubleSide });
+  if (LOWMEM) { ATLAS.map.generateMipmaps = false; ATLAS.map.minFilter = T.LinearFilter; }
   // ---------- street art: graffiti pieces, throw-ups, tag walls and billboard ads, all on their own atlas
-  const LOWMEM = matchMedia('(pointer: coarse)').matches || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
   const ART = { W: LOWMEM ? 2048 : 4096, H: LOWMEM ? 2048 : 4096, x: 0, y: 0, rowH: 0 }, ARTK = ART.W / 4096;
   const [artC, artX] = makeCanvas(ART.W, ART.H);
   function artSlot(w, h) { if (ART.x + w > ART.W) { ART.x = 0; ART.y += ART.rowH + 6; ART.rowH = 0; } const r = { x: ART.x, y: ART.y, w, h }; ART.x += w + 6; ART.rowH = Math.max(ART.rowH, h); return r; }
@@ -685,6 +688,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   }
   const _q = new T.Quaternion(), _e = new T.Euler(), _p = new T.Vector3(), _s = new T.Vector3(), _m = new T.Matrix4(), _nm = new T.Matrix3(), _v = new T.Vector3(), _n = new T.Vector3();
   const WHITE = new T.Color(1, 1, 1);
+  // phones: once a city buffer is on the GPU its CPU copy is dropped (a lost WebGL context then reloads the page, see below)
+  function dropArray() { this.array = null; }
   class Builder {
     constructor() { this.m = new Map(); }
     bucket(mat) {
@@ -741,6 +746,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
           else { const c8 = new Uint8Array(B.c.length); for (let i = 0; i < c8.length; i++) c8[i] = Math.round(B.c[i] * 255); geo.setAttribute('color', new T.BufferAttribute(c8, 3, true)); }
         }
         geo.computeBoundingSphere();
+        if (LOWMEM) for (const k in geo.attributes) geo.attributes[k].onUpload(dropArray);
         const drawMat = lowCityMaterials && mat.userData && mat.userData.lowPeer ? mat.userData.lowPeer : mat;
         const mesh = new T.Mesh(geo, drawMat);
         if (lowCityMaterials && (mat === TIRE_WEAR || mat === BASE_AO)) mesh.visible = false;
@@ -2025,7 +2031,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       const tileCv = (() => { const c = document.createElement('canvas'); c.width = 256; c.height = 64; const g = c.getContext('2d'); g.fillStyle = '#8a3b22'; g.fillRect(0, 0, 256, 64); for (let i = 0; i < 16; i++) { const gr = g.createLinearGradient(i * 16, 0, i * 16 + 16, 0); gr.addColorStop(0, '#7a3018'); gr.addColorStop(0.5, '#c8673e'); gr.addColorStop(1, '#6e2a15'); g.fillStyle = gr; g.fillRect(i * 16 + 1, 0, 14, 64); } g.fillStyle = 'rgba(0,0,0,.25)'; for (let y = 0; y < 64; y += 16) g.fillRect(0, y, 256, 3); const t = new T.CanvasTexture(c); t.encoding = T.sRGBEncoding; t.wrapS = T.RepeatWrapping; return t; })();
       const doorCv = (() => { const c = document.createElement('canvas'); c.width = 128; c.height = 256; const g = c.getContext('2d'); g.fillStyle = '#c99a3a'; g.fillRect(0, 0, 128, 256); for (let y = 8; y < 256; y += 40) for (let x = 8; x < 128; x += 40) { g.fillStyle = '#b3842c'; g.fillRect(x, y, 32, 32); g.strokeStyle = '#8c6420'; g.lineWidth = 3; g.beginPath(); g.arc(x + 16, y + 16, 9, 0, 6.3); g.stroke(); } const t = new T.CanvasTexture(c); t.encoding = T.sRGBEncoding; return t; })();
       const tileMat = new T.MeshStandardMaterial({ map: tileCv, roughness: 0.75 }), doorMat = new T.MeshStandardMaterial({ map: doorCv, roughness: 0.5, metalness: 0.35 }), wallMat = new T.MeshStandardMaterial({ color: col('#d8cbb8'), roughness: 0.9 });
-      const texFor = (file, fallback) => { const m = new T.MeshBasicMaterial({ map: fallback, toneMapped: false }); new T.TextureLoader().load('models/fk/' + file, t => { t.encoding = T.sRGBEncoding; t.anisotropy = 8; m.map = t; m.needsUpdate = true; }, undefined, () => {}); return m; };
+      const texFor = (file, fallback) => { const m = new T.MeshBasicMaterial({ map: fallback, toneMapped: false }); new T.TextureLoader().load('models/fk/' + file, t => { if (LOWMEM && t.image && t.image.width > 1024) { const im = t.image, c = document.createElement('canvas'); c.width = im.width >> 1; c.height = im.height >> 1; c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); t = new T.CanvasTexture(c); } t.encoding = T.sRGBEncoding; t.anisotropy = LOWMEM ? 2 : 8; m.map = t; m.needsUpdate = true; }, undefined, () => {}); return m; };
       // placeholder canvas (only shows if a photo file is missing)
       const ph = (() => { const c = document.createElement('canvas'); c.width = 512; c.height = 256; const g = c.getContext('2d'); g.fillStyle = '#2e86ab'; g.fillRect(0, 0, 512, 256); g.fillStyle = '#fff'; g.font = '700 48px Anton, sans-serif'; g.textAlign = 'center'; g.fillText('BIKE LIFE', 256, 140); const t = new T.CanvasTexture(c); t.encoding = T.sRGBEncoding; return t; })();
       const SEG = [
