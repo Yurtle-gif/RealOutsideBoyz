@@ -3251,7 +3251,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     high: { ratio: Math.min(window.devicePixelRatio || 1, 2), shadow: 2048, soft: true, post: true, ao: true, env: true, aniso: maxAnisotropy, sunset: ['#60636b', 70, 265], night: ['#0d1422', 58, 235] },
     ultra: { ratio: Math.min(window.devicePixelRatio || 1, 3), shadow: 4096, soft: true, post: true, ao: true, env: true, aniso: maxAnisotropy, smaa: true, sky: true, tileR: 3, bloomDay: 0.14, shadowBox: 85, sunset: ['#9c98a0', 150, 620], night: ['#0d1422', 90, 380] }
   };
-  const autoCeiling = LOWMEM ? ((navigator.deviceMemory || 4) <= 2 ? 'low' : 'medium') : 'ultra';
+  // phones stay on Low (no post-processing, shadows or env maps): Medium's full-screen buffers push iPhone Safari past its memory limit and the tab crashes
+  const autoCeiling = LOWMEM ? 'low' : 'ultra';
   let qualityPreference = 'auto', quality = autoCeiling, nightMode = false;
   try {
     const q = localStorage.getItem('ride-out-oakland-quality'); if (q === 'auto' || QL[q]) qualityPreference = q;
