@@ -2622,37 +2622,59 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
   // ---------- physics
   const fwd = new T.Vector3();
   function forward(yaw) { return fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw)); }
+  // ---------- riding feel: every tuning value in one place (per-bike multipliers below)
+  const RIDE = {
+    steerIn: 7, steerOut: 11,          // steering eases in (1/s) and settles back a bit quicker
+    steerFade: 16,                     // m/s: steering authority halves this far above 8 m/s (less twitchy at speed)
+    gasUp: 5, gasDown: 9, brakeUp: 6,  // throttle / brake ramps (1/s) instead of on/off
+    grav: 13.5,                        // air gravity (was 9.8): heavier, less floaty
+    leanMax: 0.55, leanRate: 6,        // visual lean into turns (rad, 1/s)
+    susK: 140, susC: 14, susMax: 0.11, susLand: 0.035, // suspension spring/damper, travel (m), landing kick per m/s
+    slideMinV: 5, slideYaw: 0.9, slideDrag: 0.22, slideAngle: 0.45, // brake + steer at speed: rear steps out
+    wallKmh: 30,                       // wall hit speed that bails (was 24)
+    loopGrace: 0.3, loopHard: 0.32,    // past the loop-out angle you get 0.3 s to save it (lay off the gas / brake) unless way over
+    bikes: { 0: { acc: 1, steer: 1 }, 1: { acc: 1, steer: 1 }, 2: { acc: 1.05, steer: 1 }, 3: { acc: 1.15, steer: 0.95, pop: 1.1 }, 4: { acc: 0.9, steer: 1.12, grav: 0.92, pop: 0.9 } }
+  };
+  window.__RIDE = RIDE; window.__phys = h => physics(h); window.__inp = inp; // test handles (read/tune only)
   function physics(h) {
-    const kmh = S.v * KMH;
+    const kmh = S.v * KMH, BK = RIDE.bikes[S.mode === 'bike' ? (S.bv || 0) : 0] || RIDE.bikes[0];
     S.thr += ((inp.gas ? 1 : 0) - S.thr) * Math.min(1, h * 25);
+    S.gasA = (S.gasA || 0) + ((inp.gas ? 1 : 0) - (S.gasA || 0)) * Math.min(1, h * (inp.gas ? RIDE.gasUp : RIDE.gasDown));
+    S.brkA = (S.brkA || 0) + ((inp.brake ? 1 : 0) - (S.brkA || 0)) * Math.min(1, h * (inp.brake ? RIDE.brakeUp : 12));
     const prevGear = S.gear;
     S.gear = kmh < 21.5 ? 1 : kmh < 45.5 ? 2 : 3;
     if (S.gear < prevGear && kmh > (prevGear === 2 ? 19 : 43)) S.gear = prevGear;
     if (S.gear > prevGear && S.thr > 0.6 && S.th < 0.4) S.om += 0.9;
 
-    const acc = inp.gas ? (S.gear === 1 ? 3.4 : S.gear === 2 ? 1.05 : 0.7 * Math.max(0, 1 - kmh / 95)) : 0;
-    let dec = inp.gas ? 0 : 0.55;
-    if (inp.brake) dec = S.th > 0.05 ? 2.5 : 7.6;
+    const sliding = inp.brake && Math.abs(S.st) > 0.4 && S.v > RIDE.slideMinV && S.th < 0.2 && S.y <= S.gy + 0.05;
+    const acc = S.gasA * BK.acc * (S.gear === 1 ? 3.4 : S.gear === 2 ? 1.05 : 0.7 * Math.max(0, 1 - kmh / 95));
+    let dec = 0.55 * (1 - S.gasA);
+    if (S.brkA > 0.01) dec = Math.max(dec, S.brkA * (sliding ? 2.6 : S.th > 0.05 ? 2.5 : 7.6));
     { const f0 = forward(S.yaw), slope = (H(S.x + f0.x * 4, S.z + f0.z * 4) - H(S.x - f0.x * 4, S.z - f0.z * 4)) / 8; S.v = Math.max(0, S.v + (acc - dec - 9.8 * slope * 0.8) * h); }
 
     let tq = -9 * Math.sin(BAL - S.th);
     if (inp.gas) tq += S.gear === 1 ? 9.6 * (0.5 + 0.5 * clamp(kmh / 18, 0, 1)) : S.gear === 2 ? 8.2 : 7.4;
-    if (popQueued) { if (S.th < 0.9 && kmh > 3) S.om += 3.6; popQueued = false; }
+    if (popQueued) { if (S.th < 0.9 && kmh > 3) S.om += 3.6 * (BK.pop || 1); popQueued = false; }
     if (inp.brake && S.th > 0) tq -= 16;
     if (S.v < 1.5 && S.th > 0.1) tq -= 8;
     tq -= 1.6 * S.om;
     S.om += tq * h; S.th += S.om * h;
     if (S.th < 0) { S.th = 0; S.om = Math.max(0, S.om) * 0; }
-    if (S.th > LOOP) { doCrash('loop'); return; }
+    if (S.th > LOOP) { S.loopT = (S.loopT || 0) + h; if (S.loopT > RIDE.loopGrace || S.th > LOOP + RIDE.loopHard) { S.loopT = 0; doCrash('loop'); return; } } else S.loopT = 0;
 
-    S.st += ((inp.right ? 1 : 0) - (inp.left ? 1 : 0) - S.st) * Math.min(1, h * 16);
-    S.yaw -= S.st * Math.max(inp.gas || S.v < 0.5 ? 0.35 : 0, Math.min(1.25, S.v / (3.5 + S.v * 0.35))) * (S.th > 0.35 ? 0.75 : 1) * h;
+    const stT = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
+    S.st += (stT - S.st) * Math.min(1, h * (stT ? RIDE.steerIn : RIDE.steerOut));
+    const auth = BK.steer / (1 + Math.max(0, S.v - 8) / RIDE.steerFade);
+    S.yaw -= S.st * auth * Math.max(inp.gas || S.v < 0.5 ? 0.35 : 0, Math.min(1.25, S.v / (3.5 + S.v * 0.35))) * (S.th > 0.35 ? 0.75 : 1) * h;
+    // rear slide: brake + steer at speed swings the tail out; let go of the brake to catch it
+    S.slip = (S.slip || 0) + ((sliding ? S.st * RIDE.slideAngle : 0) - (S.slip || 0)) * Math.min(1, h * (sliding ? 4 : 6));
+    if (sliding) { S.yaw -= S.st * RIDE.slideYaw * h; S.v *= 1 - RIDE.slideDrag * h; }
     const f = forward(S.yaw);
     const nx = S.x + f.x * S.v * h, nz = S.z + f.z * S.v * h;
     const bk = blocked(nx, nz, -0.6);
     if (bk === 'w' && raisedAt(nx, nz) === null) { doCrash('water'); return; }
     if (bk === 'b') {
-      if (S.v * KMH > 24) { doCrash('wall'); return; }
+      if (S.v * KMH > RIDE.wallKmh) { doCrash('wall'); return; }
       // slow bump: stop and ease back a little so the front wheel is free
       S.v = 0; S.thr = 0;
       for (let k = 0; k < 6; k++) { const bx = S.x - f.x * 0.08, bz = S.z - f.z * 0.08; if (blocked(bx, bz) === 'b') break; S.x = bx; S.z = bz; }
@@ -2661,11 +2683,14 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
     const rz = raisedAt(S.x, S.z), gy = groundY(S.x, S.z, rz !== null ? rz : H(S.x, S.z) + (sidewalkAt(S.x, S.z) ? 0.18 : 0));
     const step = gy - S.gy;
     if (step > 0.06 && S.y < gy - 0.02) {
-      if (S.v * KMH > 12 || step < 0.2) { S.vy = Math.max(S.vy, Math.sqrt(2 * 9.8 * (step + 0.04))); S.om += 0.3; if (step > 0.3) S.v *= 0.85; }
+      if (S.v * KMH > 12 || step < 0.2) { S.vy = Math.max(S.vy, Math.sqrt(2 * 9.8 * (step + 0.04))); S.om += 0.3; S.susV = (S.susV || 0) - step * 3; if (step > 0.3) S.v *= 0.85; }
       else { S.v = 0; S.gy = gy - step; }
     } else if (step < -0.06) S.vy = Math.min(S.vy, 0);
     S.gy = gy;
-    if (S.y > gy + 0.01 || S.vy > 0) { S.vy -= 9.8 * h; S.y += S.vy * h; if (S.y < gy) { S.y = gy; S.vy = 0; } } else { S.y = gy; S.vy = 0; }
+    if (S.y > gy + 0.01 || S.vy > 0) { S.vy -= RIDE.grav * (BK.grav || 1) * h; S.y += S.vy * h; if (S.y < gy) { S.y = gy; S.susV = (S.susV || 0) + Math.min(0, S.vy) * RIDE.susLand * 20; S.vy = 0; } } else { S.y = gy; S.vy = 0; }
+    // suspension: spring-damper on a small travel, kicked by landings and curb hops; a little squat on the brakes
+    S.sus = S.sus || 0; S.susV = (S.susV || 0) + (-RIDE.susK * (S.sus + S.brkA * 0.015) - RIDE.susC * S.susV) * h;
+    S.sus = clamp(S.sus + S.susV * h, -RIDE.susMax, RIDE.susMax * 0.4); if (Math.abs(S.sus) >= RIDE.susMax - 1e-4) S.susV = 0;
   }
 
   // ---------- crash and respawn
@@ -2687,7 +2712,7 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
   }
   function respawnHome() { S.x = MAP.spawn[0]; S.z = MAP.spawn[1]; S.yaw = MAP.spawn[2]; respawn(false); }
   function respawn(toRoad) {
-    S.state = 'ride'; S.crash = null; S.th = 0; S.om = 0; S.v = 0; S.thr = 0; S.st = 0; S.gear = 1; S.vx = 0; S.vz = 0; S.vr = 0;
+    S.state = 'ride'; S.crash = null; S.th = 0; S.om = 0; S.v = 0; S.thr = 0; S.st = 0; S.gasA = 0; S.brkA = 0; S.slip = 0; S.sus = 0; S.susV = 0; S.lean = 0; S.loopT = 0; S.gear = 1; S.vx = 0; S.vz = 0; S.vr = 0;
     const nr = toRoad === false ? null : nearestRoad(S.x, S.z);
     if (!nr && toRoad !== false) { S.x = MAP.spawn[0]; S.z = MAP.spawn[1]; S.yaw = MAP.spawn[2]; }
     if (nr) {
@@ -2875,7 +2900,7 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
     if (bike.hl) { bike.hl.visible = m === 'bike'; bike.tl.visible = m === 'bike'; }
     if (bike.tp) bike.tp.intensity = m === 'bike' ? 0.5 : 0;
     grom.root.visible = m === 'grom'; if (quad.root) quad.root.visible = m === 'quad';
-    bike.pitch.position.y = m === 'grom' ? grom.R : m === 'quad' ? quad.R : b5 ? bike5.R0 : b4 ? bike4.R0 : b3 ? bike3.R0 : b2 ? bike2.R0 : (bike.R0 || R);
+    bike.pitch.userData.y0 = bike.pitch.position.y = m === 'grom' ? grom.R : m === 'quad' ? quad.R : b5 ? bike5.R0 : b4 ? bike4.R0 : b3 ? bike3.R0 : b2 ? bike2.R0 : (bike.R0 || R);
     if (m === 'grom') SEAT.set(...(grom.seat || [0, 0.6, -0.26])); else if (m === 'quad') SEAT.set(0, 0.613 * QS - 0.04, -0.32 * QS); else if (b5) SEAT.set(...bike5.seat); else if (b4) SEAT.set(...bike4.seat); else if (b3) SEAT.set(...bike3.seat); else if (b2) SEAT.set(...bike2.seat); else SEAT.set(...(bike.seat || [0, 0.66, -0.58]));
     if (m === 'car') applyCarModel();
     const sb = document.getElementById('swapBtn'); if (sb) sb.textContent = RIDE_LABEL[nextRide(curRide())];
@@ -3466,7 +3491,8 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
     if (ULTRA.sky && ULTRA.sky.visible) sun.position.set(S.x + ULTRA.sunDir.x * 150, S.y + ULTRA.sunDir.y * 150, S.z + ULTRA.sunDir.z * 150); else sun.position.set(S.x + 60, S.y + 110, S.z + 35);
     sun.target.position.set(S.x, S.y, S.z); if (ULTRA.sky) ULTRA.sky.position.copy(camera.position);
     updateTrain(S.t);
-    bike.root.rotation.y = S.yaw;
+    bike.root.rotation.y = S.yaw + (S.mode !== 'car' && S.mode !== 'quad' && S.state === 'ride' ? (S.slip || 0) : 0);
+    bike.pitch.position.y = (bike.pitch.userData.y0 ?? R) + (S.mode !== 'car' && S.mode !== 'quad' && S.state === 'ride' ? (S.sus || 0) : 0);
     bike.pitch.rotation.x = S.th;
     if (bike.parts && bike.parts.FrontWheel) {
       const spin = S.v * (1 / 0.336) * (1 / 60) * 60 * dt;
@@ -3481,7 +3507,8 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
     if (S.mode === 'grom') { const gsp = S.v / grom.R * dt * (grom.spin || 1); grom.rear.rotation.x -= gsp; grom.front.rotation.x -= gsp; grom.steer.rotation.y = -S.st * 0.35; }
     if (S.state === 'crash') bike.lean.rotation.z = S.crash.roll * S.crash.rollDir;
     else {
-      bike.lean.rotation.z = -S.st * clamp(S.v / 12, 0, 1) * (S.mode === 'quad' ? -0.05 : 0.42);
+      if (S.mode === 'quad') bike.lean.rotation.z = -S.st * clamp(S.v / 12, 0, 1) * -0.05;
+      else { const lt = -S.st * clamp(S.v / 10, 0, 1) * RIDE.leanMax; S.lean = (S.lean || 0) + (lt - (S.lean || 0)) * Math.min(1, dt * RIDE.leanRate); bike.lean.rotation.z = S.lean; }
       if (riderSkinned && S.state === 'ride') {
         // a rider who wasn't posed last frame (respawn, ride swap, crash) starts settled instead of sweeping in
         const fresh = TR.seen !== FRAME - 1; TR.seen = FRAME;
