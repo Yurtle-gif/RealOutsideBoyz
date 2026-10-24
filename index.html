@@ -2664,7 +2664,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 
   // ---------- drivable car: a candy-painted '70s sedan on chrome wheels (front is -z, driver sits on the left)
   const CWB = 2.85, CR = 0.36;
-  const car = { root: new T.Group(), body: new T.Group(), spin: [], steer: [], wheel: null };
+  const car = { root: new T.Group(), body: new T.Group(), spin: [], steer: [], wheel: null, models: {} };
   scene.add(car.root); car.root.add(car.body); car.root.visible = false;
   (function buildCar() {
     const paint = new T.MeshStandardMaterial({ color: col('#5b1c9e'), metalness: 0.55, roughness: 0.26, envMapIntensity: 1.6 });
@@ -2723,17 +2723,22 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     }
   })();
   const CAR_PTS = [[-0.92, -2.4], [0.92, -2.4], [-0.92, 2.4], [0.92, 2.4], [0, -2.45], [0, 2.45], [-0.97, -0.9], [0.97, -0.9], [-0.97, 0.9], [0.97, 0.9]];
+  // the 350Z is shorter and a widebody: about 2.0 m x 4.55 m
+  const Z_PTS = [[-0.95, -2.2], [0.95, -2.2], [-0.95, 2.25], [0.95, 2.25], [0, -2.25], [0, 2.3], [-1.0, -0.9], [1.0, -0.9], [-1.0, 0.9], [1.0, 0.9]];
   function carBlocked(x, z, yaw) {
     const c = Math.cos(yaw), s = Math.sin(yaw);
-    for (const [lx, lz] of CAR_PTS) { const b = blocked(x + lx * c + lz * s, z - lx * s + lz * c, -0.6); if (b === 'b' || (b === 'w' && raisedAt(x, z) === null)) return b; }
+    for (const [lx, lz] of (S.cm === 'z350' ? Z_PTS : CAR_PTS)) { const b = blocked(x + lx * c + lz * s, z - lx * s + lz * c, -0.6); if (b === 'b' || (b === 'w' && raisedAt(x, z) === null)) return b; }
     return null;
   }
-  const RIDES = ['bike', 'bike2', 'grom', 'quad', 'car'], RIDE_LABEL = { bike: 'Bike', bike2: 'YZ', grom: 'Grom', quad: 'Quad', car: 'Car' };
-  const curRide = () => S.mode === 'bike' && S.bv ? 'bike2' : S.mode;
-  const nextRide = m => { let n = RIDES[(RIDES.indexOf(m) + 1) % RIDES.length]; for (let i = 0; i < 2; i++) if ((n === 'quad' && quad.failed) || (n === 'bike2' && bike2.failed)) n = RIDES[(RIDES.indexOf(n) + 1) % RIDES.length]; return n; };
+  // 'z350' is ridden in car mode with S.cm = 'z350' (S.cm picks the car model; anything else is the G35)
+  const RIDES = ['bike', 'bike2', 'grom', 'quad', 'car', 'z350'], RIDE_LABEL = { bike: 'Bike', bike2: 'YZ', grom: 'Grom', quad: 'Quad', car: 'Car', z350: '350Z' };
+  const curRide = () => S.mode === 'bike' && S.bv ? 'bike2' : S.mode === 'car' && S.cm === 'z350' ? 'z350' : S.mode;
+  const nextRide = m => { let n = RIDES[(RIDES.indexOf(m) + 1) % RIDES.length]; for (let i = 0; i < 3; i++) if ((n === 'quad' && quad.failed) || (n === 'bike2' && bike2.failed) || (n === 'z350' && z350.failed)) n = RIDES[(RIDES.indexOf(n) + 1) % RIDES.length]; return n; };
   // second dirt bike: the user's blue Monster Energy YZ from its own model, ridden with the same bike physics
   const bike2 = { root: null, dw: null, R0: 0.33, seat: [0, 0.6, -0.354], ok: false, failed: false };
   let bike2Load = null;
+  const z350 = { ok: false, failed: false };
+  let z350Load = null;
   function ensureBike2() { return bike2Load || (bike2Load = (async () => {
     try {
       const g = await load('models/dirtbike2.gltf.json'), m = g.scene; let wr = null, wf = null;
@@ -2759,16 +2764,19 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     grom.root.visible = m === 'grom'; if (quad.root) quad.root.visible = m === 'quad';
     bike.pitch.position.y = m === 'grom' ? grom.R : m === 'quad' ? quad.R : b2 ? bike2.R0 : (bike.R0 || R);
     if (m === 'grom') SEAT.set(...(grom.seat || [0, 0.6, -0.26])); else if (m === 'quad') SEAT.set(0, 0.613 * QS - 0.04, -0.32 * QS); else if (b2) SEAT.set(...bike2.seat); else SEAT.set(...(bike.seat || [0, 0.66, -0.58]));
+    if (m === 'car') applyCarModel();
     const sb = document.getElementById('swapBtn'); if (sb) sb.textContent = RIDE_LABEL[nextRide(curRide())];
   }
   function toggleVehicle() {
     if (S.state !== 'ride') return;
-    const next = nextRide(curRide()), toCar = next === 'car';
+    const next = nextRide(curRide()), toCar = next === 'car' || next === 'z350';
+    if (next === 'z350' && !z350.ok) { const from = curRide(); rideNote('Loading 350Z…'); ensureZ350().then(() => { if (z350.ok && curRide() === from && S.state === 'ride') toggleVehicle(); else if (!z350.ok) { rideNote("350Z didn't load"); setRideVisuals(); } }); return; }
     if (next === 'bike2' && !bike2.ok) { const from = curRide(); rideNote('Loading bike…'); ensureBike2().then(() => { if (bike2.ok && curRide() === from && S.state === 'ride') toggleVehicle(); else if (!bike2.ok) { rideNote("Bike 2 didn't load"); setRideVisuals(); } }); return; }
     if (next === 'quad' && !quad.ok) { const from = S.mode; rideNote('Loading Banshee…'); ensureQuad().then(() => { if (quad.ok && S.mode === from && S.state === 'ride') toggleVehicle(); else if (!quad.ok) rideNote("Banshee didn't load"); }); return; }
-    if (next === 'grom') ensureGrom(); if (toCar) ensureG35();
+    if (next === 'grom') ensureGrom(); if (next === 'car') ensureG35();
+    if (toCar) S.cm = next === 'z350' ? 'z350' : 'g35';
     if (toCar && carBlocked(S.x, S.z, S.yaw)) { const nr = nearestRoad(S.x, S.z); if (nr) { S.x = nr.qx; S.z = nr.qz; S.yaw = Math.atan2(-nr.ux, -nr.uz); } }
-    S.mode = next === 'bike2' ? 'bike' : next; S.bv = next === 'bike2' ? 1 : 0;
+    S.mode = next === 'bike2' ? 'bike' : toCar ? 'car' : next; S.bv = next === 'bike2' ? 1 : 0;
     const f = forward(S.yaw); S.vx = f.x * S.v; S.vz = f.z * S.v; S.vr = 0;
     S.th = 0; S.om = 0; S.st = 0; S.thr = 0; popQueued = false;
     if (!toCar) { S.v = Math.max(0, S.v); S.gear = 1; }
@@ -2776,25 +2784,34 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     if (!toCar) { seatRider(); S.lastLean = -1; }
     lastDial = '';
   }
+  // per-model handling: acc/top = power and top-speed term, lock = steering lock, grip = lateral grip, hbGrip = grip on the handbrake,
+  // hbYaw = handbrake + gas rotation; pwrGrip/pwrYaw = power oversteer (gas, steer past half, over 8 m/s) for the drift build
+  const CAR_TUNE = {
+    g35: { acc: 7.2, top: 47, lock: 0.62, grip: 8, hbGrip: 1.3, hbYaw: 1.9, pwrGrip: 0, pwrYaw: 1 },
+    z350: { acc: 7.8, top: 52, lock: 0.75, grip: 8, hbGrip: 1.0, hbYaw: 2.3, pwrGrip: 3.5, pwrYaw: 1.25 }
+  };
   function carPhysics(h) {
     popQueued = false;
+    const tu = CAR_TUNE[S.cm] || CAR_TUNE.g35;
     const f = forward(S.yaw), rx = -f.z, rz = f.x, hb = inp.hb;
     let vf = S.vx * f.x + S.vz * f.z, vr = S.vx * rx + S.vz * rz;
     S.thr += ((inp.gas ? 1 : 0) - S.thr) * Math.min(1, h * 10);
     let a;
-    if (inp.gas) a = vf < -0.5 ? 10 : 7.2 * Math.max(0, 1 - vf / 47) + (vf < 44 ? 0.5 : 0);
+    if (inp.gas) a = vf < -0.5 ? 10 : tu.acc * Math.max(0, 1 - vf / tu.top) + (vf < tu.top - 3 ? 0.5 : 0);
     else if (inp.brake) a = vf > 0.5 ? -12 : vf > -9 ? -4.2 : 0;
     else a = -Math.sign(vf) * Math.min(Math.abs(vf) / h, 0.9 + 0.004 * vf * vf);
     if (hb) a -= Math.sign(vf) * Math.min(Math.abs(vf) / h, 3.2);
     const slope = (H(S.x + f.x * 2, S.z + f.z * 2) - H(S.x - f.x * 2, S.z - f.z * 2)) / 4;
     vf += (a - 9.8 * slope * 0.9) * h;
     S.st += ((inp.right ? 1 : 0) - (inp.left ? 1 : 0) - S.st) * Math.min(1, h * 7);
-    let yr = vf / CWB * Math.tan(S.st * 0.62 / (1 + Math.abs(vf) / 16));
-    if (hb && Math.abs(vf) > 1) yr = yr * 1.6 + Math.sign(vf) * S.st * (inp.gas ? 1.9 : 0.6);
+    let yr = vf / CWB * Math.tan(S.st * tu.lock / (1 + Math.abs(vf) / 16));
+    const pwr = tu.pwrGrip > 0 && !hb && inp.gas && Math.abs(S.st) > 0.5 && vf > 8;
+    if (hb && Math.abs(vf) > 1) yr = yr * 1.6 + Math.sign(vf) * S.st * (inp.gas ? tu.hbYaw : 0.6);
+    else if (pwr) yr *= tu.pwrYaw;
     S.yaw -= yr * h;
-    // keep the velocity vector, re-split it on the new heading; grip pulls the sideways part in, the handbrake lets it slide
+    // keep the velocity vector, re-split it on the new heading; grip pulls the sideways part in, the handbrake (or power oversteer) lets it slide
     const vx = f.x * vf + rx * vr, vz = f.z * vf + rz * vr, f2 = forward(S.yaw), r2x = -f2.z, r2z = f2.x;
-    vf = vx * f2.x + vz * f2.z; vr = (vx * r2x + vz * r2z) * Math.exp(-(hb ? 1.3 : 8) * h);
+    vf = vx * f2.x + vz * f2.z; vr = (vx * r2x + vz * r2z) * Math.exp(-(hb ? tu.hbGrip : pwr ? tu.pwrGrip : tu.grip) * h);
     S.vx = f2.x * vf + r2x * vr; S.vz = f2.z * vf + r2z * vr; S.v = vf; S.vr = vr; S.cacc = a;
     const nx = S.x + S.vx * h, nz = S.z + S.vz * h;
     if (carBlocked(nx, nz, S.yaw) && !carBlocked(S.x, S.z, S.yaw)) {
@@ -2891,11 +2908,37 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       });
       // model already faces -z; centre its wheelbase on the car's origin
       m.scale.setScalar(CS); m.position.z = 0.0505 * CS;
-      car.root.traverse(o => { if (o.isMesh && !o.userData.keep) o.visible = false; });
-      car.body.add(m); car.spin = wheels; car.steer = fronts; car.R = 0.143 * CS; car.fp = [-0.36, 1.12, 0.2];
-      const cb = buildCabin(); car.body.add(cb.group); car.wheel = cb.wheel; car.needles = cb.needles;
+      const cb = buildCabin(), grp = new T.Group(); grp.add(m, cb.group); car.body.add(grp);
+      car.models.g35 = { grp, spin: wheels, steer: fronts, R: 0.143 * CS, fp: [-0.36, 1.12, 0.2], wheel: cb.wheel, needles: cb.needles };
+      grp.traverse(o => { o.userData.carModel = true; }); applyCarModel();
     } catch (e) {}
   })()); }
+  // ---------- the user's 350Z drift build (Hyper3D, wheels cut out as wheel_FL/FR/RL/RR): a second car model, driven in car mode with S.cm = 'z350'
+  function ensureZ350() { return z350Load || (z350Load = (async function loadZ350() {
+    try {
+      const g = await load('models/z350.gltf.json'), m = g.scene, CS = 2.40, NX = 0.85, wheels = [], fronts = [];
+      upgradeModelMaterials(m, 'vehicle');
+      // the generated body is too wide: narrow it 0.85x in the geometry (not the node scale) so steered wheels don't shear
+      m.traverse(o => {
+        if (o.isMesh) { o.castShadow = true; o.geometry.scale(NX, 1, 1); }
+        if (o.name && o.name.startsWith('wheel_')) { o.rotation.order = 'YXZ'; o.position.x *= NX; wheels.push(o); if (o.name.startsWith('wheel_F')) fronts.push(o); }
+      });
+      // model faces -z, sits on y=0 and has its wheelbase centred already; 2.40 gives the real 2.65 m wheelbase
+      m.scale.setScalar(CS);
+      const grp = new T.Group(); grp.add(m); grp.visible = false; car.body.add(grp);
+      // no modelled interior, so first person is a bonnet cam just above the hood
+      car.models.z350 = { grp, spin: wheels, steer: fronts, R: 0.172 * CS, fp: [0, 1.2, -1.35], wheel: null, needles: null };
+      grp.traverse(o => { o.userData.carModel = true; }); z350.ok = true; applyCarModel();
+    } catch (e) { z350.failed = true; }
+  })()); }
+  // show the active car model (S.cm) and point the wheel/cockpit hooks at it; the hand-built sedan shows until that model has loaded
+  function applyCarModel() {
+    const M = car.models[S.cm === 'z350' ? 'z350' : 'g35'];
+    if (!car.ph) car.ph = { spin: car.spin, steer: car.steer, wheel: car.wheel };
+    for (const k in car.models) car.models[k].grp.visible = car.models[k] === M;
+    car.root.traverse(o => { if (o.isMesh && !o.userData.keep && !o.userData.carModel) o.visible = !M; });
+    const src = M || car.ph; car.spin = src.spin; car.steer = src.steer; car.wheel = src.wheel; car.needles = M ? M.needles : null; car.R = M ? M.R : 0; car.fp = M ? M.fp : null;
+  }
   function poseCar(dt) {
     const f = forward(S.yaw), half = CWB / 2;
     car.root.position.set(S.x, S.y, S.z); car.root.rotation.order = 'YXZ'; car.root.rotation.y = S.yaw;
@@ -3426,6 +3469,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function netSnap() {
     const inCar = S.mode === 'car', rt = inCar ? car.root : bike.root, rd = bike.rider;
     const d = { n: NET.name, m: NET_MODES.indexOf(S.mode), bv: S.bv ? 1 : 0, p: [r3(rt.position.x), r3(rt.position.y), r3(rt.position.z)], r: [r3(rt.rotation.x), r3(rt.rotation.y)], l: r3(bike.lean.rotation.z), th: r3(bike.pitch.rotation.x), v: r3(S.v), st: r3(S.st), q: NET.seq++ };
+    if (inCar && S.cm === 'z350') d.cm = 1;
     if (!inCar && rd) {
       if (rd.parent === bike.pitch) { d.rp = [r3(rd.position.x), r3(rd.position.y), r3(rd.position.z)]; d.rw = 0; }
       else { rd.getWorldPosition(tmpN); rd.getWorldQuaternion(tmpQ); d.rp = [r3(tmpN.x), r3(tmpN.y), r3(tmpN.z)]; d.rq = [r3(tmpQ.x), r3(tmpQ.y), r3(tmpQ.z), r3(tmpQ.w)]; d.rw = 1; }
@@ -3438,16 +3482,20 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function pathTo(root, o) { const p = []; while (o && o !== root) { if (!o.parent) return null; p.unshift(o.parent.children.indexOf(o)); o = o.parent; } return o === root ? p : null; }
   function follow(root, p) { let o = root; for (const i of p || []) o = o && o.children[i]; return o || null; }
   function cloneRide(m, P) {
-    const src = m === 'bike2' ? bike2.root : m === 'bike' ? bike.model : m === 'grom' ? grom.root : m === 'quad' ? quad.root : car.body; if (!src) return null;
+    if (m === 'z350' && !car.models.z350) return null;
+    const src = m === 'bike2' ? bike2.root : m === 'bike' ? bike.model : m === 'grom' ? grom.root : m === 'quad' ? quad.root : m === 'z350' ? car.models.z350.grp : car.body; if (!src) return null;
     const c = src.clone(); c.visible = true;
+    // a G35 peer clones the whole car body: show its G35 and hide this player's other car model in the copy
+    if (m === 'car') for (const k in car.models) { const o = follow(c, pathTo(src, car.models[k].grp)); if (o) o.visible = k === 'g35'; }
     let spin = [], steer = [];
     const map = arr => arr.filter(Boolean).map(o => follow(c, pathTo(src, o))).filter(Boolean);
     if (m === 'bike' && bike.dw) { spin = map([bike.dw.rear, bike.dw.front]); steer = map([bike.dw.front]); }
     if (m === 'bike2' && bike2.dw) { spin = map([bike2.dw.rear, bike2.dw.front]); steer = map([bike2.dw.steer || bike2.dw.front]); }
     if (m === 'grom') { spin = map([grom.rear, grom.front]); steer = map([grom.steer]); }
     if (m === 'quad') { spin = map(quad.wheels); steer = map(quad.front); }
-    if (m === 'car') { spin = map(car.spin); steer = map(car.steer); }
-    (m === 'car' ? P.root : P.pitch).add(c);
+    if (m === 'car') { const M = car.models.g35; spin = map(M ? M.spin : car.spin); steer = map(M ? M.steer : car.steer); }
+    if (m === 'z350') { spin = map(car.models.z350.spin); steer = map(car.models.z350.steer); }
+    (m === 'car' || m === 'z350' ? P.root : P.pitch).add(c);
     return { obj: c, spin, steer };
   }
   function nameTag(text) {
@@ -3474,10 +3522,10 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     P.d = d; P.seen = performance.now();
     const nm = String(d.n || 'Rider').slice(0, 14);
     if (nm !== P.name) { P.name = nm; if (P.tag) P.root.remove(P.tag); P.tag = nameTag(nm); P.root.add(P.tag); }
-    let m = NET_MODES[d.m] || 'bike'; if (m === 'bike' && d.bv) m = 'bike2';
+    let m = NET_MODES[d.m] || 'bike'; if (m === 'bike' && d.bv) m = 'bike2'; if (m === 'car' && d.cm === 1) m = 'z350';
     if (m !== P.mode) {
       P.mode = m;
-      if (m === 'quad' && !quad.ok) ensureQuad(); if (m === 'bike2') ensureBike2(); if (m === 'grom') ensureGrom(); if (m === 'car') ensureG35();
+      if (m === 'quad' && !quad.ok) ensureQuad(); if (m === 'bike2') ensureBike2(); if (m === 'grom') ensureGrom(); if (m === 'car') ensureG35(); if (m === 'z350') ensureZ350();
       for (const k in P.rides) P.rides[k].obj.visible = false;
     }
   }
@@ -3492,7 +3540,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       if (now - P.seen > 12000) { netDrop(id); continue; }
       const far = Math.hypot(d.p[0] - S.x, d.p[2] - S.z) > 450, stale = now - P.seen > 6000;
       P.root.visible = !far && !stale; if (!P.root.visible) continue;
-      const m = P.mode, inCar = m === 'car';
+      const m = P.mode, inCar = m === 'car' || m === 'z350';
       // ride model: cloned lazily once that ride has loaded here
       if (!P.rides[m]) { const r = cloneRide(m, P); if (r) P.rides[m] = r; }
       for (const k in P.rides) P.rides[k].obj.visible = k === m;
@@ -3504,9 +3552,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       else { P.root.position.lerp(tmpN, a); P.root.rotation.x += (d.r[0] - P.root.rotation.x) * a; P.root.rotation.y = angLerp(P.root.rotation.y, d.r[1], a); P.lean.rotation.z += ((inCar ? 0 : d.l) - P.lean.rotation.z) * a; P.pitch.rotation.x += ((inCar ? 0 : d.th) - P.pitch.rotation.x) * a; }
       P.pitch.position.y = inCar ? 0 : m === 'grom' ? grom.R : m === 'quad' ? quad.R : m === 'bike2' ? bike2.R0 : (bike.R0 || R);
       if (R0) {
-        const rad = m === 'bike2' ? bike2.R0 : m === 'bike' ? (bike.dw ? bike.dw.R : R) : m === 'grom' ? grom.R : m === 'quad' ? quad.R : (car.R || CR), sg = m === 'grom' ? -(grom.spin || 1) : m === 'car' ? -1 : 1, sp = d.v / rad * dt * sg;
+        const rad = m === 'bike2' ? bike2.R0 : m === 'bike' ? (bike.dw ? bike.dw.R : R) : m === 'grom' ? grom.R : m === 'quad' ? quad.R : m === 'z350' ? car.models.z350.R : (car.models.g35 ? car.models.g35.R : CR), sg = m === 'grom' ? -(grom.spin || 1) : inCar ? -1 : 1, sp = d.v / rad * dt * sg;
         for (const w of R0.spin) w.rotation.x += sp;
-        for (const w of R0.steer) w.rotation.y = -d.st * (m === 'quad' ? 0.45 : m === 'car' ? 0.55 : 0.35);
+        for (const w of R0.steer) w.rotation.y = -d.st * (m === 'quad' ? 0.45 : inCar ? 0.55 : 0.35);
       }
       // rider: seated in the rig, or flying free after a bail
       if (P.rider) {
