@@ -88,6 +88,10 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 @media (pointer:coarse) and (orientation:portrait){.pad.main .b-gas{position:fixed;right:max(10px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 12px)}#dial{right:calc(max(10px,env(safe-area-inset-right,0px)) + 76px)}.touch{padding-right:calc(max(10px,env(safe-area-inset-right,0px)) + 186px)!important}.pad.main{grid-template-columns:auto!important;grid-template-areas:"s" "pop"!important}}
 /* phones landscape (Eric's markup): Pop over S, stacked above the gap between the steer buttons; tricks become a 2x2 grid above them */
 @media (pointer:coarse) and (orientation:landscape){.pad.main .b-s,.pad.main .b-pop{position:fixed;width:54px!important;height:54px!important;left:calc(max(14px,env(safe-area-inset-left,0px)) + 40px)!important}.pad.main .b-s{bottom:calc(env(safe-area-inset-bottom,0px) + 84px)!important}.pad.main .b-pop{bottom:calc(env(safe-area-inset-bottom,0px) + 146px)!important}.touch{justify-content:flex-start;gap:20px}.tricks{display:grid!important;grid-template-columns:auto auto;gap:6px;bottom:calc(env(safe-area-inset-bottom,0px) + 208px)!important}.tricks[hidden]{display:none!important}.tricks button{height:34px;min-width:0;font-size:12px}}
+.edbar{position:fixed;z-index:9;left:50%;top:calc(env(safe-area-inset-top,0px) + 8px);transform:translateX(-50%);display:flex;gap:6px;align-items:center;padding:6px 8px;border-radius:14px;background:rgba(10,14,22,.82);border:1px solid var(--line);color:#fff;font-weight:700;font-size:13px}
+.edbar button{appearance:none;border:1px solid var(--line);background:rgba(255,255,255,.1);color:#fff;font:inherit;padding:6px 10px;border-radius:10px;min-width:34px}.edbar .ok{background:var(--gold);color:#1b1408;border-color:var(--gold)}
+body.editing [data-ed]{outline:2px dashed #ffd23f;outline-offset:3px;pointer-events:auto!important;touch-action:none;cursor:grab}body.editing [data-ed].sel{outline-color:#3ff27a;outline-style:solid}
+body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.editing #touch{display:flex!important}
 .trick{position:fixed;z-index:5;left:50%;top:calc(env(safe-area-inset-top,0px) + 56px);transform:translateX(-50%);text-align:center;pointer-events:none;width:min(92vw,520px)}
 .trick .tn{font-family:var(--display);font-size:clamp(26px,6.5vw,42px);line-height:1;color:var(--gold);text-shadow:0 3px 0 rgba(0,0,0,.4),0 0 20px rgba(255,170,40,.35);text-wrap:balance}
 .trick .ts{margin-top:6px;font-weight:700;font-size:15px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.6);font-variant-numeric:tabular-nums}
@@ -106,6 +110,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
 <div id="netHud" class="nethud" hidden aria-live="polite"></div>
 <div class="icons">
   <button id="camBtn" class="icon" type="button" aria-label="Switch camera"><svg viewBox="0 0 24 24"><path d="M4 7h11a2 2 0 0 1 2 2v1.6l4-2.3v7.4l-4-2.3V15a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/></svg></button>
+  <button id="editBtn" class="icon" type="button" aria-label="Edit controls" hidden><svg viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zm9 4.6v-2.2l-2.3-.5a7 7 0 0 0-.7-1.7l1.3-2-1.6-1.6-2 1.3a7 7 0 0 0-1.7-.7L13.1 3h-2.2l-.5 2.3a7 7 0 0 0-1.7.7l-2-1.3-1.6 1.6 1.3 2a7 7 0 0 0-.7 1.7L3 10.9v2.2l2.3.5c.2.6.4 1.2.7 1.7l-1.3 2 1.6 1.6 2-1.3c.5.3 1.1.5 1.7.7l.5 2.3h2.2l.5-2.3c.6-.2 1.2-.4 1.7-.7l2 1.3 1.6-1.6-1.3-2c.3-.5.5-1.1.7-1.7z"/></svg></button>
   <button id="pauseBtn" class="icon" type="button" aria-label="Pause"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="5" height="16" rx="1.5"/><rect x="14" y="4" width="5" height="16" rx="1.5"/></svg></button>
 </div>
 
@@ -136,6 +141,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     <div class="qrow vol" role="group" aria-label="Sound"><span class="lbl">Sound</span><label>Master <input type="range" min="0" max="100" value="80" data-k="master"></label><label>SFX <input type="range" min="0" max="100" value="90" data-k="sfx"></label><label>Ambience <input type="range" min="0" max="100" value="70" data-k="amb"></label></div>
     <div id="g3dRow" class="qrow" role="group" aria-label="World" hidden><span class="lbl">World</span><button id="g3dBtn" class="modebtn" type="button" aria-pressed="false">Real Oakland (Google 3D)</button></div>
     <div class="netrow"><button id="netBtn" class="qbtn" type="button" aria-pressed="false">Online: Off</button><div id="netFields" class="netfields" hidden><input id="netName" maxlength="14" placeholder="Your name" autocomplete="nickname" aria-label="Your rider name"><input id="netCode" maxlength="16" placeholder="Crew code (optional)" autocapitalize="characters" aria-label="Crew code, blank for the public lobby"></div></div>
+    <button id="editCtlBtn" class="qbtn" type="button" hidden>Edit controls</button>
     <div id="status">Loading Oakland…</div>
     <p class="credit">Map data © OpenStreetMap contributors</p>
     <button id="go" class="go" type="button" disabled>Ride</button>
@@ -3311,6 +3317,57 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     btn.addEventListener('pointerdown', on); btn.addEventListener('pointerup', off); btn.addEventListener('pointercancel', off); btn.addEventListener('lostpointercapture', off);
     btn.addEventListener('contextmenu', e => e.preventDefault());
   }
+  // ---------- touch layout editor: drag controls, +/- size, saved per orientation as viewport %
+  const ED = { on: false, sel: null, drag: null, was: false };
+  const edEls = () => { const L = [...document.querySelectorAll('#touch [data-in]')].map(e => [e.dataset.in, e]); L.push(['dial', document.getElementById('dial')], ['tricks', document.getElementById('tricks')], ['cam', camBtn]); return L; };
+  for (const [k, e] of edEls()) e.dataset.ed = k;
+  const edKey = () => 'rob-ctl-' + (innerWidth > innerHeight ? 'land' : 'port');
+  const edLoad = () => { try { return JSON.parse(localStorage.getItem(edKey()) || '{}'); } catch (e) { return {}; } };
+  let edPos = {};
+  function edClear(e) { for (const p of ['position', 'left', 'top', 'right', 'bottom', 'transform', 'transformOrigin', 'zIndex']) e.style[p] = ''; }
+  function edPlace(e, p) {
+    e.style.position = 'fixed'; e.style.right = 'auto'; e.style.bottom = 'auto'; e.style.zIndex = '6';
+    e.style.transformOrigin = '0 0'; e.style.transform = 'scale(' + (p.s || 1) + ')';
+    const r = e.getBoundingClientRect(), w = r.width, h = r.height;
+    p.x = Math.min(Math.max(p.x, 0), Math.max(0, 100 - w / innerWidth * 100)); p.y = Math.min(Math.max(p.y, 0), Math.max(0, 100 - h / innerHeight * 100));
+    e.style.left = p.x + '%'; e.style.top = p.y + '%';
+  }
+  function edApply() { edPos = edLoad(); for (const [k, e] of edEls()) { edClear(e); if (edPos[k]) edPlace(e, edPos[k]); } }
+  function edFreeze(k, e) { if (edPos[k]) return edPos[k]; const r = e.getBoundingClientRect(); const p = { x: r.left / innerWidth * 100, y: r.top / innerHeight * 100, s: 1 }; edPos[k] = p; edPlace(e, p); return p; }
+  const edBar = document.createElement('div'); edBar.className = 'edbar'; edBar.hidden = true;
+  edBar.innerHTML = '<span>Drag controls</span><button data-a="minus" aria-label="Smaller">\u2212</button><button data-a="plus" aria-label="Bigger">+</button><button data-a="save">Save</button><button data-a="reset">Reset</button><button data-a="done" class="ok">Done</button>';
+  document.body.appendChild(edBar);
+  const edSave = () => { try { localStorage.setItem(edKey(), JSON.stringify(edPos)); } catch (e) {} };
+  function edSize(d) { if (!ED.sel) return; const [k, e] = ED.sel; const p = edFreeze(k, e); p.s = Math.min(1.8, Math.max(0.6, Math.round(((p.s || 1) + d) * 10) / 10)); edPlace(e, p); }
+  function edSelect(k, e) { if (ED.sel) ED.sel[1].classList.remove('sel'); ED.sel = [k, e]; e.classList.add('sel'); }
+  function editMode(on) {
+    if (on === ED.on) return; ED.on = on; document.body.classList.toggle('editing', on); edBar.hidden = !on;
+    for (const k in inp) inp[k] = false; for (const k in trickInp) trickInp[k] = false;
+    if (on) { ED.was = S.paused; S.paused = true; panel.hidden = true; edPos = edLoad(); }
+    else { if (ED.sel) ED.sel[1].classList.remove('sel'); ED.sel = null; S.paused = ED.was; panel.hidden = !ED.was; edApply(); }
+  }
+  edBar.addEventListener('click', e => { const a = e.target.dataset && e.target.dataset.a; if (!a) return;
+    if (a === 'minus') edSize(-0.1); else if (a === 'plus') edSize(0.1); else if (a === 'save') edSave();
+    else if (a === 'reset') { edPos = {}; try { localStorage.removeItem(edKey()); } catch (er) {} for (const [, el] of edEls()) edClear(el); }
+    else if (a === 'done') { edSave(); editMode(false); } });
+  // capture phase: in edit mode a touch on a control only drags it, it never reaches the game's button handlers
+  addEventListener('pointerdown', e => { if (!ED.on) return; const el = e.target.closest && e.target.closest('[data-ed]'); if (!el) return;
+    e.preventDefault(); e.stopPropagation(); const k = el.dataset.ed; edSelect(k, el); const p = edFreeze(k, el);
+    ED.drag = { id: e.pointerId, k, el, p, sx: e.clientX, sy: e.clientY, px: p.x, py: p.y }; }, true);
+  addEventListener('pointermove', e => { const d = ED.drag; if (!ED.on || !d || e.pointerId !== d.id) return; e.preventDefault();
+    d.p.x = d.px + (e.clientX - d.sx) / innerWidth * 100; d.p.y = d.py + (e.clientY - d.sy) / innerHeight * 100; edPlace(d.el, d.p); }, true);
+  const edEnd = e => { if (ED.drag && e.pointerId === ED.drag.id) ED.drag = null; };
+  addEventListener('pointerup', edEnd, true); addEventListener('pointercancel', edEnd, true);
+  for (const t of ['click', 'pointerup', 'contextmenu']) addEventListener(t, e => { if (ED.on && e.target.closest && e.target.closest('[data-ed]')) { e.preventDefault(); e.stopPropagation(); } }, true);
+  // two-finger pinch on the selected control resizes it
+  let edPinch = 0; addEventListener('touchmove', e => { if (!ED.on || !ED.sel || e.touches.length !== 2) { edPinch = 0; return; } const [a, b] = e.touches, dd = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); if (edPinch) edSize((dd - edPinch) / 200); edPinch = dd; }, { passive: true });
+  const editBtn = document.getElementById('editBtn'), editCtlBtn = document.getElementById('editCtlBtn');
+  if (!document.getElementById('touch').hidden) { editBtn.hidden = false; editCtlBtn.hidden = false; }
+  editBtn.addEventListener('click', () => { editBtn.blur(); if (S.state !== 'menu') editMode(!ED.on); });
+  editCtlBtn.addEventListener('click', () => { editCtlBtn.blur(); if (S.state !== 'menu') editMode(true); });
+  let edOri = edKey(); addEventListener('resize', () => { if (edKey() !== edOri) { edOri = edKey(); if (ED.on) editMode(false); } edApply(); });
+  edApply(); window.__ed = { editMode, ED };
+
 
   // ---------- dial
   const dial = document.getElementById('dial'), dx = dial.getContext('2d');
