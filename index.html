@@ -2722,21 +2722,24 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     for (const [lx, lz] of CAR_PTS) { const b = blocked(x + lx * c + lz * s, z - lx * s + lz * c, -0.6); if (b === 'b' || (b === 'w' && raisedAt(x, z) === null)) return b; }
     return null;
   }
-  const RIDES = ['bike', 'grom', 'quad', 'car'], RIDE_LABEL = { bike: 'Bike', bike2: 'Bike 2', grom: 'Grom', quad: 'Quad', car: 'Car' };
+  const RIDES = ['bike', 'bike2', 'grom', 'quad', 'car'], RIDE_LABEL = { bike: 'Bike', bike2: 'YZ', grom: 'Grom', quad: 'Quad', car: 'Car' };
   const curRide = () => S.mode === 'bike' && S.bv ? 'bike2' : S.mode;
   const nextRide = m => { let n = RIDES[(RIDES.indexOf(m) + 1) % RIDES.length]; for (let i = 0; i < 2; i++) if ((n === 'quad' && quad.failed) || (n === 'bike2' && bike2.failed)) n = RIDES[(RIDES.indexOf(n) + 1) % RIDES.length]; return n; };
-  // second dirt bike: the blue bike from its own model, ridden with the same bike physics
-  const bike2 = { root: null, dw: null, R0: 0.33, seat: [0, 0.6, -0.36], ok: false, failed: false };
+  // second dirt bike: the user's blue Monster Energy YZ from its own model, ridden with the same bike physics
+  const bike2 = { root: null, dw: null, R0: 0.33, seat: [0, 0.6, -0.354], ok: false, failed: false };
   let bike2Load = null;
   function ensureBike2() { return bike2Load || (bike2Load = (async () => {
     try {
       const g = await load('models/dirtbike2.gltf.json'), m = g.scene; let wr = null, wf = null;
-      m.traverse(o => { if (o.isMesh) { o.castShadow = true; if (o.material) { o.material.envMapIntensity = 1.0; o.material.needsUpdate = true; } } if (o.name === 'wheel_R') wr = o; if (o.name === 'wheel_F') wf = o; });
-      // model faces +z with the rear axle at (0, 0.33, -0.612): face -z and sit that axle on the rig's pivot
-      m.rotation.y = Math.PI; m.position.set(0, -0.33, -0.612);
+      let sf = null;
+      upgradeModelMaterials(m, 'vehicle');
+      m.traverse(o => { if (o.isMesh) o.castShadow = true; if (o.name === 'wheel_R') wr = o; if (o.name === 'wheel_F') wf = o; if (o.name === 'steer_F') sf = o; });
+      // model faces +z with the rear axle at (0, 0.33, -0.576): face -z and sit that axle on the rig's pivot.
+      // steer_F turns about the raked steering axis and carries the fork and front wheel
+      m.rotation.y = Math.PI; m.position.set(0, -0.33, -0.576);
       const holder = new T.Group(); holder.add(m); holder.visible = false; bike.pitch.add(holder);
-      if (wf) wf.rotation.order = 'YXZ';
-      bike2.root = holder; bike2.dw = { rear: wr, front: wf, R: 0.33 }; bike2.ok = true;
+      if (wf && !sf) wf.rotation.order = 'YXZ';
+      bike2.root = holder; bike2.dw = { rear: wr, front: wf, steer: sf, R: 0.33 }; bike2.ok = true;
       if (S.mode === 'bike' && S.bv) { setRideVisuals(); seatRider(); }
     } catch (e) { bike2.failed = true; }
   })()); }
@@ -3135,7 +3138,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       const comp = clamp(S.thr * 0.02 - (inp.brake ? 0.04 : 0), -0.04, 0.02);
       if (bike.parts.ForkLower && bike.parts.ForkLower.userData.rest) bike.parts.ForkLower.position.y = bike.parts.ForkLower.userData.rest.y + comp;
     }
-    { const dw = S.bv ? bike2.dw : bike.dw; if (S.mode === 'bike' && dw && dw.rear) { const ds = S.v / dw.R * dt; dw.rear.rotation.x += ds; if (dw.front) { dw.front.rotation.x += ds; dw.front.rotation.y = -S.st * 0.35; } } }
+    { const dw = S.bv ? bike2.dw : bike.dw; if (S.mode === 'bike' && dw && dw.rear) { const ds = S.v / dw.R * dt; dw.rear.rotation.x += ds; if (dw.front) { dw.front.rotation.x += ds; if (dw.steer) dw.steer.rotation.y = -S.st * 0.35; else dw.front.rotation.y = -S.st * 0.35; } } }
     if (S.mode === 'quad' && quad.ok) { const qsp = S.v / quad.R * dt; for (const w of quad.wheels) w.rotation.x += qsp; for (const w of quad.front) w.rotation.y = -S.st * 0.45; }
     if (S.mode === 'grom') { const gsp = S.v / grom.R * dt * (grom.spin || 1); grom.rear.rotation.x -= gsp; grom.front.rotation.x -= gsp; grom.steer.rotation.y = -S.st * 0.35; }
     if (S.state === 'crash') bike.lean.rotation.z = S.crash.roll * S.crash.rollDir;
@@ -3433,7 +3436,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     let spin = [], steer = [];
     const map = arr => arr.filter(Boolean).map(o => follow(c, pathTo(src, o))).filter(Boolean);
     if (m === 'bike' && bike.dw) { spin = map([bike.dw.rear, bike.dw.front]); steer = map([bike.dw.front]); }
-    if (m === 'bike2' && bike2.dw) { spin = map([bike2.dw.rear, bike2.dw.front]); steer = map([bike2.dw.front]); }
+    if (m === 'bike2' && bike2.dw) { spin = map([bike2.dw.rear, bike2.dw.front]); steer = map([bike2.dw.steer || bike2.dw.front]); }
     if (m === 'grom') { spin = map([grom.rear, grom.front]); steer = map([grom.steer]); }
     if (m === 'quad') { spin = map(quad.wheels); steer = map(quad.front); }
     if (m === 'car') { spin = map(car.spin); steer = map(car.steer); }
