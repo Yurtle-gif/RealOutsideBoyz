@@ -731,9 +731,15 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
         if (!(opt && opt.flat)) for (let i = 1; i < B.p.length; i += 3) B.p[i] += H(B.p[i - 1], B.p[i + 1]);
         const geo = new T.BufferGeometry();
         geo.setAttribute('position', new T.Float32BufferAttribute(B.p, 3));
-        geo.setAttribute('normal', new T.Float32BufferAttribute(B.n, 3));
+        // normals and tints go to the GPU as normalized bytes: a quarter of the memory, which keeps phones under Safari's limit
+        const n8 = new Int8Array(B.n.length); for (let i = 0; i < n8.length; i++) n8[i] = Math.round(B.n[i] * 127);
+        geo.setAttribute('normal', new T.BufferAttribute(n8, 3, true));
         geo.setAttribute('uv', new T.Float32BufferAttribute(B.u, 2));
-        if (B.vc) geo.setAttribute('color', new T.Float32BufferAttribute(B.c, 3));
+        if (B.vc) {
+          let over = false; for (let i = 0; i < B.c.length; i++) if (B.c[i] > 1 || B.c[i] < 0) { over = true; break; }
+          if (over) geo.setAttribute('color', new T.Float32BufferAttribute(B.c, 3));
+          else { const c8 = new Uint8Array(B.c.length); for (let i = 0; i < c8.length; i++) c8[i] = Math.round(B.c[i] * 255); geo.setAttribute('color', new T.BufferAttribute(c8, 3, true)); }
+        }
         geo.computeBoundingSphere();
         const drawMat = lowCityMaterials && mat.userData && mat.userData.lowPeer ? mat.userData.lowPeer : mat;
         const mesh = new T.Mesh(geo, drawMat);
@@ -3246,7 +3252,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   }
   document.getElementById('wetBtn').addEventListener('click', e => { wetRoads = !wetRoads; try { localStorage.setItem('rob-wet', wetRoads ? '1' : '0'); } catch (er) {} applyWet(); e.currentTarget.blur(); });
   const QL = {
-    low: { ratio: Math.min(window.devicePixelRatio || 1, 1), shadow: 0, soft: false, post: false, ao: false, env: false, aniso: Math.min(2, maxAnisotropy), sunset: ['#737078', 42, 165], night: ['#151a27', 34, 145] },
+    low: { ratio: Math.min(window.devicePixelRatio || 1, 1), tileR: 1, shadow: 0, soft: false, post: false, ao: false, env: false, aniso: Math.min(2, maxAnisotropy), sunset: ['#737078', 42, 165], night: ['#151a27', 34, 145] },
     medium: { ratio: Math.min(window.devicePixelRatio || 1, 1.25), shadow: 1024, soft: false, post: true, ao: false, env: true, aniso: Math.min(4, maxAnisotropy), sunset: ['#696870', 55, 215], night: ['#111725', 46, 190] },
     high: { ratio: Math.min(window.devicePixelRatio || 1, 2), shadow: 2048, soft: true, post: true, ao: true, env: true, aniso: maxAnisotropy, sunset: ['#60636b', 70, 265], night: ['#0d1422', 58, 235] },
     ultra: { ratio: Math.min(window.devicePixelRatio || 1, 3), shadow: 4096, soft: true, post: true, ao: true, env: true, aniso: maxAnisotropy, smaa: true, sky: true, tileR: 3, bloomDay: 0.14, shadowBox: 85, sunset: ['#9c98a0', 150, 620], night: ['#0d1422', 90, 380] }
