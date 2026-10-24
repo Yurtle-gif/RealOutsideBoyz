@@ -2515,7 +2515,7 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
     vf += (a - 9.8 * slope * 0.85) * h;
     // wheelie: pop it with Space, hold the gas to ride it at a steady angle, let off or brake to set it down
     if (popQueued) { if (S.th < 0.6 && kmh > 3) S.om += 3.0; popQueued = false; }
-    const up = inp.gas && vf > 0.5 && S.th > 0.04, target = up ? (S.gear === 3 ? 0.45 : 0.68) : 0;
+    const up = inp.gas && vf > 0.5 && S.th > 0.04, target = up ? (S.gear === 3 ? QBAL - 0.2 : QBAL) : 0;
     const k = up ? 16 : inp.brake ? 34 : 20, c = 2 * Math.sqrt(k) * 1.02;
     S.om += (k * (target - S.th) - c * S.om) * h; S.th += S.om * h;
     if (S.th < 0) { S.th = 0; S.om = 0; }
