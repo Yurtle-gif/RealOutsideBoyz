@@ -3030,6 +3030,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     if (k) { inp[k] = true; e.preventDefault(); }
     if (e.code === 'Space') { e.preventDefault(); inp.hb = true; if (!e.repeat && S.state === 'ride' && S.mode !== 'car') popQueued = true; }
     if (e.code === 'KeyF' && !e.repeat) toggleVehicle();
+    if (e.code === 'KeyG' && !e.repeat) RS.standKey = !RS.standKey;  // standing wheelie (feet on seat + fender)
     if (e.code === 'KeyR' && !e.repeat && S.state !== 'menu') { S.respawnAt = S.t + 0.4; }
     if (e.code === 'KeyT' && !e.repeat && S.state !== 'menu') { S.respawnAt = 0; respawnHome(); }
     if (e.code === 'KeyC' && !e.repeat) toggleCam();
@@ -3127,7 +3128,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   // steer_F node are stored in that node's frame so the arms follow the bars when steering.
   const SIDECAM = /[?&]cam=side/.test(location.search);
   var RIG = { cache: new Map() }; const ikA = new T.Vector3(), ikB = new T.Vector3(), ikC = new T.Vector3(), ikT = new T.Vector3(), ikP = new T.Vector3(), ikD = new T.Vector3(), ikE = new T.Vector3();
-  const RS = { stand: 0, comp: 0, dab: 0, airPrev: false, hip: new T.Vector3(), vyPrev: 0 };
+  const RS = { stand: 0, comp: 0, dab: 0, airPrev: false, hip: new T.Vector3(), vyPrev: 0, wt: 0, wh: 0, ws: 0, standKey: false, bigLean: 0, nextLean: 4, arm: 0, armMode: 0, nextArm: 3, kick: 0, nextKick: 2.5 };
   function curBikeRig() {
     const k = S.mode === 'bike' ? 'b' + (S.bv || 0) : S.mode; if (RIG.cache.has(k)) return RIG.cache.get(k);
     const b = S.mode !== 'bike' ? null : S.bv === 4 ? bike5 : S.bv === 3 ? bike4 : S.bv === 2 ? bike3 : S.bv === 1 ? bike2 : null;
@@ -3181,21 +3182,42 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     if (RS.airPrev && !air) RS.comp = 1; RS.airPrev = air; RS.comp = Math.max(0, RS.comp - dt * 2.5);   // landing: soak it up
     const dabT = sp < 1.2 && !air && S.th < 0.1 ? 1 : 0; RS.dab += (dabT - RS.dab) * k;
     const wheelie = clamp(S.th / 1.0, 0, 1), turn = clamp(S.st * clamp(sp / 10, 0, 1), -1, 1);
+    // ---- street-wheelie choreography (hand-keyed from Eric's reference ride)
+    // seated 12 o'clock by default; standing (feet on seat + rear fender) on G or after ~4 s up; left arm sometimes leaves the bar
+    const inWh = S.th > 0.28 && !air; RS.wt = inWh ? RS.wt + dt : 0;
+    RS.wh += ((inWh ? 1 : 0) - RS.wh) * (inWh ? k : 1 - Math.exp(-dt * 3));          // roll off: sit back upright gently
+    const wsT = inWh && (RS.standKey || RS.wt > 4) ? 1 : 0; RS.ws += (wsT - RS.ws) * (1 - Math.exp(-dt * 3));
+    if (inWh) {
+      RS.nextLean -= dt; if (RS.nextLean <= 0) { RS.bigLean = 1.4; RS.nextLean = 5 + Math.random() * 5; }
+      RS.nextArm -= dt; if (RS.nextArm <= 0) { RS.arm = 1.6 + Math.random(); RS.armMode = Math.random() < 0.55 ? 0 : Math.random() < 0.5 ? 1 : 2; RS.nextArm = 4 + Math.random() * 5; }
+      RS.nextKick -= dt; if (RS.nextKick <= 0 && RS.ws > 0.6) { RS.kick = 0.9; RS.nextKick = 3 + Math.random() * 4; }
+    } else { RS.arm = 0; RS.kick = 0; RS.bigLean = 0; }
+    RS.bigLean = Math.max(0, RS.bigLean - dt); RS.arm = Math.max(0, RS.arm - dt); RS.kick = Math.max(0, RS.kick - dt);
+    const pulse = (x, len) => x <= 0 ? 0 : Math.sin(Math.min(1, (len - x) / len) * Math.PI);
+    const leanL = pulse(RS.bigLean, 1.4), armOff = RS.arm > 0 ? clamp(Math.min(RS.arm, 2.6 - RS.arm) * 3, 0, 1) : 0, kick = pulse(RS.kick, 0.9);
+    const sway = Math.sin(S.t * 1.9) * 0.07 + Math.sin(S.t * 3.3 + 1) * 0.03;
+    const whS = RS.wh * (1 - RS.ws), whU = RS.wh * RS.ws;
     // hips: up/forward when standing, back on wheelies, down on landings, inward in turns
-    RS.hip.set(turn * 0.07, RS.stand * 0.2 - Math.sin(RS.comp * Math.PI) * 0.12, -RS.stand * 0.1 + wheelie * 0.12);
+    RS.hip.set(turn * 0.07 + (sway * 0.4 - leanL * 0.08) * RS.wh, RS.stand * 0.2 * (1 - RS.wh) - Math.sin(RS.comp * Math.PI) * 0.12 + whU * 0.42, -RS.stand * 0.1 * (1 - RS.wh) + whS * 0.16 + whU * 0.3);
     rd.position.add(RS.hip.clone().multiplyScalar(1 - trickW));
     // upper body: lean into the turn and forward when standing, back on wheelies
-    const sp2 = bike.bones.Spine01; if (sp2) { const q = new T.Quaternion().setFromEuler(new T.Euler((RS.stand * 0.35 - wheelie * 0.25 + RS.comp * 0.3) * (1 - trickW), 0, turn * 0.25 * (1 - trickW))); sp2.quaternion.multiply(q); }
+    const sp2 = bike.bones.Spine01; if (sp2) { const q = new T.Quaternion().setFromEuler(new T.Euler((RS.stand * 0.35 * (1 - RS.wh) - whS * 0.55 + whU * 0.2 + RS.comp * 0.3) * (1 - trickW), 0, (turn * 0.25 + (sway + leanL * 0.45) * RS.wh) * (1 - trickW))); sp2.quaternion.multiply(q); }
     rd.updateMatrixWorld(true); bike.pitch.updateMatrixWorld(true);
     const W = 1 - trickW, toW = v => bike.pitch.localToWorld(v.clone());
     for (let i = 0; i < 2; i++) {
       const side = i ? 'Right' : 'Left', sx = i ? 1 : -1;
       // hands on the grips (grips ride on steer_F when the bike has one)
       const g = rig.steer ? rig.steer.localToWorld(rig.grips[i].clone()) : toW(rig.grips[i]);
-      ik2(side + 'Arm', side + 'ForeArm', side + 'Hand', g, toW(rig.seat.clone().add(V(sx * 0.7, 0.3, 0.6))), W);
+      const armW = i === 0 ? W * (1 - armOff) : W;   // right hand always stays on the throttle
+      ik2(side + 'Arm', side + 'ForeArm', side + 'Hand', g, toW(rig.seat.clone().add(V(sx * 0.7, 0.3, 0.6))), armW);
+      if (i === 0 && armOff > 0.01) {
+        const dirs = [V(0.45, -0.1, -0.85), V(0.3, 0.95, 0.1), V(0.98, 0.15, 0.05)];   // swing back / point up / point out (rider frame)
+        const dd = dirs[RS.armMode]; aim('LeftArm', 'LeftForeArm', dd, armOff * W); aim('LeftForeArm', 'LeftHand', dd, armOff * W);
+      }
       // feet on the pegs; left foot dabs the ground at walking pace
       let f = toW(rig.pegs[i].clone().add(V(0, 0.07, 0.04)));
       if (i === 0 && RS.dab > 0.01) f.lerp(toW(V(-0.42, -rig.R0 + 0.08, rig.pegs[0].z - 0.05)), RS.dab);
+      if (RS.ws > 0.01) { const onSeat = V(sx * 0.11, rig.seat.y + 0.05, rig.seat.z + (i ? 0.42 : 0.12)); if (i === 1 && kick > 0) onSeat.add(V(0.38 * kick, -0.05, -0.05)); f.lerp(toW(onSeat), RS.ws * RS.wh); }
       ik2(side + 'UpLeg', side + 'Leg', side + 'Foot', f, toW(rig.seat.clone().add(V(sx * 0.35, 0.1, -0.9))), W);
     }
   }
