@@ -138,10 +138,11 @@
       eng.o3.frequency.setTargetAtTime(fire * 0.5, t, 0.03);
       eng.lp.frequency.setTargetAtTime(P.bright + r * P.bright * 3 + S.thr * 900, t, 0.05);
       eng.nb.frequency.setTargetAtTime(1200 + r * 3000, t, 0.05);
-      eng.ng.gain.setTargetAtTime(live ? P.rasp * (0.04 + S.thr * 0.12) : 0, t, 0.05);
+      eng.ng.gain.setTargetAtTime(live && !st.electric ? P.rasp * (0.04 + S.thr * 0.12) : 0, t, 0.05);
       let eg = live ? (S.state === 'ride' ? (0.13 + S.thr * 0.12) * P.vol : 0.05) : 0;
       if (st.limiter && S.thr > 0.8) { eng.limT += dt; if ((eng.limT * 22 | 0) % 2) eg *= 0.25; } else eng.limT = 0; // rev-limiter stutter
       if (shifting) eg *= 0.35;
+      if (st.electric) eg *= 0.12;  // Ultra Bee is electric: only a faint motor whine
       eng.out.gain.setTargetAtTime(eg, t, 0.02);
       if (S.gear !== last.gear && S.state === 'ride' && S.mode !== 'car') fx.shift(); last.gear = S.gear;
       // landings: front wheel slam after a wheelie, or touching down after air

@@ -2579,7 +2579,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     const lo = [0, 0, 22, 46][S.gear] || 0, hi = [0, 22, 46, 90][S.gear] || 90, inCar = S.mode === 'car', sp = Math.abs(S.v), cg = Math.min(4, Math.floor(sp / 11));
     const rpm = inCar ? 0.08 + clamp((sp - cg * 11) / 11, 0, 1) * 0.7 + S.thr * 0.2 : 0.08 + clamp((kmh - lo) / (hi - lo), 0, 1) * 0.72 + S.thr * 0.2;
     camera.getWorldDirection(_camFwd);
-    audio.update({ S, dt, rpm: Math.min(1, rpm), limiter: rpm > 0.97 || (S.gear === 3 && kmh > 85), brake: !!(inp.brake || inp.hb), crashType: S.crash && S.crash.type,
+    audio.update({ S, dt, electric: S.mode === 'bike' && S.bv === 4, rpm: Math.min(1, rpm), limiter: rpm > 0.97 || (S.gear === 3 && kmh > 85), brake: !!(inp.brake || inp.hb), crashType: S.crash && S.crash.type,
       camera, camFwd: _camFwd, lake: [-176, 586], party: AUD_PARTY, trucks: AUD_TRUCKS });
   }
   function syncVolUI() { for (const el of document.querySelectorAll('.vol input')) { const k = el.dataset.k; if (audio) el.value = Math.round(audio.vol[k] * 100); } }
@@ -2737,9 +2737,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     return null;
   }
   // 'z350' is ridden in car mode with S.cm = 'z350' (S.cm picks the car model; anything else is the G35)
-  const RIDES = ['bike', 'bike2', 'bike3', 'bike4', 'grom', 'quad', 'car', 'z350'], RIDE_LABEL = { bike: 'Bike', bike2: 'YZ', bike3: 'ROB YZ', bike4: 'CRF150R', grom: 'Grom', quad: 'Quad', car: 'Car', z350: '350Z' };
-  const curRide = () => S.mode === 'bike' && S.bv === 3 ? 'bike4' : S.mode === 'bike' && S.bv === 2 ? 'bike3' : S.mode === 'bike' && S.bv ? 'bike2' : S.mode === 'car' && S.cm === 'z350' ? 'z350' : S.mode;
-  const nextRide = m => { let n = RIDES[(RIDES.indexOf(m) + 1) % RIDES.length]; for (let i = 0; i < 3; i++) if ((n === 'quad' && quad.failed) || (n === 'bike2' && bike2.failed) || (n === 'bike3' && bike3.failed) || (n === 'bike4' && bike4.failed) || (n === 'z350' && z350.failed)) n = RIDES[(RIDES.indexOf(n) + 1) % RIDES.length]; return n; };
+  const RIDES = ['bike', 'bike2', 'bike3', 'bike4', 'bike5', 'grom', 'quad', 'car', 'z350'], RIDE_LABEL = { bike: 'Bike', bike2: 'YZ', bike3: 'ROB YZ', bike4: 'CRF150R', bike5: 'Ultra Bee', grom: 'Grom', quad: 'Quad', car: 'Car', z350: '350Z' };
+  const curRide = () => S.mode === 'bike' && S.bv === 4 ? 'bike5' : S.mode === 'bike' && S.bv === 3 ? 'bike4' : S.mode === 'bike' && S.bv === 2 ? 'bike3' : S.mode === 'bike' && S.bv ? 'bike2' : S.mode === 'car' && S.cm === 'z350' ? 'z350' : S.mode;
+  const nextRide = m => { let n = RIDES[(RIDES.indexOf(m) + 1) % RIDES.length]; for (let i = 0; i < 3; i++) if ((n === 'quad' && quad.failed) || (n === 'bike2' && bike2.failed) || (n === 'bike3' && bike3.failed) || (n === 'bike4' && bike4.failed) || (n === 'bike5' && bike5.failed) || (n === 'z350' && z350.failed)) n = RIDES[(RIDES.indexOf(n) + 1) % RIDES.length]; return n; };
   // second dirt bike: the user's blue Monster Energy YZ from its own model, ridden with the same bike physics
   const bike2 = { root: null, dw: null, R0: 0.33, seat: [0, 0.6, -0.354], ok: false, failed: false };
   let bike2Load = null;
@@ -2780,6 +2780,25 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       if (S.mode === 'bike' && S.bv === 3) { setRideVisuals(); seatRider(); }
     } catch (e) { console.warn('CRF150R failed to load', e); bike4.failed = true; }
   })()); }
+  // fifth bike: Rodin Surron Ultra Bee (electric) from Form Studio, same rig as ROB YZ (wheel_R / wheel_F spin, steer_F steers)
+  // real-size Ultra Bee vs the rider: model 2.332 m long / seat 1.10 m as built, x0.81 -> 1.89 m long, seat ~0.89 m, wheel R 0.307
+  const UB_K = 0.81;
+  const bike5 = { root: null, dw: null, R0: 0.3795 * UB_K, seat: [0, 0.584 + 0.1, (0.3 - 0.7109) * UB_K], ok: false, failed: false };
+  let bike5Load = null;
+  function ensureBike5() { return bike5Load || (bike5Load = (async () => {
+    try {
+      const g = await load('models/rob_ultrabee.glb'), m = g.scene; let wr = null, wf = null;
+      upgradeModelMaterials(m, 'vehicle');
+      let sf = null;
+      m.traverse(o => { if (o.isMesh) o.castShadow = true; if (o.name === 'wheel_R') wr = o; if (o.name === 'wheel_F') wf = o; if (o.name === 'steer_F') sf = o; });
+      // model faces +z, sits on y=0, rear axle at (0, 0.3795, -0.7109): face -z and sit that axle on the rig's pivot
+      m.scale.setScalar(UB_K); m.rotation.y = Math.PI; m.position.set(0, -0.3795 * UB_K, -0.7109 * UB_K);
+      const holder = new T.Group(); holder.add(m); holder.visible = false; bike.pitch.add(holder);
+      if (wf && !sf) wf.rotation.order = 'YXZ';
+      bike5.root = holder; bike5.dw = { rear: wr, front: wf, steer: sf, R: 0.3795 * UB_K }; bike5.ok = true;
+      if (S.mode === 'bike' && S.bv === 4) { setRideVisuals(); seatRider(); }
+    } catch (e) { console.warn('Ultra Bee failed to load', e); bike5.failed = true; }
+  })()); }
   const z350 = { ok: false, failed: false };
   let z350Load = null;
   function ensureBike2() { return bike2Load || (bike2Load = (async () => {
@@ -2799,14 +2818,15 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   })()); }
   function rideNote(t) { trickToast(t, ''); TR.hideAt = S.t + 2.2; }
   function setRideVisuals() {
-    const m = S.mode, b4 = m === 'bike' && S.bv === 3 && bike4.ok, b3 = m === 'bike' && S.bv === 2 && bike3.ok, b2 = !b3 && !b4 && m === 'bike' && S.bv === 1 && bike2.ok;
+    if (typeof RIG !== 'undefined') RIG.cache.clear();
+    const m = S.mode, b5 = m === 'bike' && S.bv === 4 && bike5.ok, b4 = m === 'bike' && S.bv === 3 && bike4.ok, b3 = m === 'bike' && S.bv === 2 && bike3.ok, b2 = !b3 && !b4 && !b5 && m === 'bike' && S.bv === 1 && bike2.ok;
     car.root.visible = m === 'car'; bike.root.visible = m !== 'car';
-    if (bike.model) bike.model.visible = m === 'bike' && !b2 && !b3 && !b4; if (bike4.root) bike4.root.visible = b4; if (bike2.root) bike2.root.visible = b2; if (bike3.root) bike3.root.visible = b3;
+    if (bike.model) bike.model.visible = m === 'bike' && !b2 && !b3 && !b4 && !b5; if (bike4.root) bike4.root.visible = b4; if (bike5.root) bike5.root.visible = b5; if (bike2.root) bike2.root.visible = b2; if (bike3.root) bike3.root.visible = b3;
     if (bike.hl) { bike.hl.visible = m === 'bike'; bike.tl.visible = m === 'bike'; }
     if (bike.tp) bike.tp.intensity = m === 'bike' ? 0.5 : 0;
     grom.root.visible = m === 'grom'; if (quad.root) quad.root.visible = m === 'quad';
-    bike.pitch.position.y = m === 'grom' ? grom.R : m === 'quad' ? quad.R : b4 ? bike4.R0 : b3 ? bike3.R0 : b2 ? bike2.R0 : (bike.R0 || R);
-    if (m === 'grom') SEAT.set(...(grom.seat || [0, 0.6, -0.26])); else if (m === 'quad') SEAT.set(0, 0.613 * QS - 0.04, -0.32 * QS); else if (b4) SEAT.set(...bike4.seat); else if (b3) SEAT.set(...bike3.seat); else if (b2) SEAT.set(...bike2.seat); else SEAT.set(...(bike.seat || [0, 0.66, -0.58]));
+    bike.pitch.position.y = m === 'grom' ? grom.R : m === 'quad' ? quad.R : b5 ? bike5.R0 : b4 ? bike4.R0 : b3 ? bike3.R0 : b2 ? bike2.R0 : (bike.R0 || R);
+    if (m === 'grom') SEAT.set(...(grom.seat || [0, 0.6, -0.26])); else if (m === 'quad') SEAT.set(0, 0.613 * QS - 0.04, -0.32 * QS); else if (b5) SEAT.set(...bike5.seat); else if (b4) SEAT.set(...bike4.seat); else if (b3) SEAT.set(...bike3.seat); else if (b2) SEAT.set(...bike2.seat); else SEAT.set(...(bike.seat || [0, 0.66, -0.58]));
     if (m === 'car') applyCarModel();
     const sb = document.getElementById('swapBtn'); if (sb) sb.textContent = RIDE_LABEL[nextRide(curRide())];
   }
@@ -2815,13 +2835,14 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     const next = nextRide(curRide()), toCar = next === 'car' || next === 'z350';
     if (next === 'z350' && !z350.ok) { const from = curRide(); rideNote('Loading 350Z…'); ensureZ350().then(() => { if (z350.ok && curRide() === from && S.state === 'ride') toggleVehicle(); else if (!z350.ok) { rideNote("350Z didn't load"); setRideVisuals(); } }); return; }
     if (next === 'bike2' && !bike2.ok) { const from = curRide(); rideNote('Loading bike…'); ensureBike2().then(() => { if (bike2.ok && curRide() === from && S.state === 'ride') toggleVehicle(); else if (!bike2.ok) { rideNote("Bike 2 didn't load"); setRideVisuals(); } }); return; }
+    if (next === 'bike5' && !bike5.ok) { const from = curRide(); rideNote('Loading Ultra Bee…'); ensureBike5().then(() => { if (bike5.ok && curRide() === from && S.state === 'ride') toggleVehicle(); else if (!bike5.ok) { rideNote("Ultra Bee didn't load"); setRideVisuals(); } }); return; }
     if (next === 'bike4' && !bike4.ok) { const from = curRide(); rideNote('Loading CRF150R…'); ensureBike4().then(() => { if (bike4.ok && curRide() === from && S.state === 'ride') toggleVehicle(); else if (!bike4.ok) { rideNote("CRF150R didn't load"); setRideVisuals(); } }); return; }
     if (next === 'bike3' && !bike3.ok) { const from = curRide(); rideNote('Loading ROB YZ…'); ensureBike3().then(() => { if (bike3.ok && curRide() === from && S.state === 'ride') toggleVehicle(); else if (!bike3.ok) { rideNote("ROB YZ didn't load"); setRideVisuals(); } }); return; }
     if (next === 'quad' && !quad.ok) { const from = S.mode; rideNote('Loading Banshee…'); ensureQuad().then(() => { if (quad.ok && S.mode === from && S.state === 'ride') toggleVehicle(); else if (!quad.ok) rideNote("Banshee didn't load"); }); return; }
     if (next === 'grom') ensureGrom(); if (next === 'car') ensureG35();
     if (toCar) S.cm = next === 'z350' ? 'z350' : 'g35';
     if (toCar && carBlocked(S.x, S.z, S.yaw)) { const nr = nearestRoad(S.x, S.z); if (nr) { S.x = nr.qx; S.z = nr.qz; S.yaw = Math.atan2(-nr.ux, -nr.uz); } }
-    S.mode = next === 'bike2' || next === 'bike3' || next === 'bike4' ? 'bike' : toCar ? 'car' : next; S.bv = next === 'bike4' ? 3 : next === 'bike3' ? 2 : next === 'bike2' ? 1 : 0;
+    S.mode = next === 'bike2' || next === 'bike3' || next === 'bike4' || next === 'bike5' ? 'bike' : toCar ? 'car' : next; S.bv = next === 'bike5' ? 4 : next === 'bike4' ? 3 : next === 'bike3' ? 2 : next === 'bike2' ? 1 : 0;
     const f = forward(S.yaw); S.vx = f.x * S.v; S.vz = f.z * S.v; S.vr = 0;
     S.th = 0; S.om = 0; S.st = 0; S.thr = 0; popQueued = false;
     if (!toCar) { S.v = Math.max(0, S.v); S.gear = 1; }
@@ -3100,6 +3121,84 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       bike.bones[b].quaternion.copy(cur);
     }
   }
+
+  // ---------- riding body: state-driven offsets + two-bone IK (hands on the grips, feet on the pegs), per bike
+  // rig points are in the pitch frame (rear axle origin, -z forward, +y up, rider's left = -x). Grips on bikes with a
+  // steer_F node are stored in that node's frame so the arms follow the bars when steering.
+  const SIDECAM = /[?&]cam=side/.test(location.search);
+  var RIG = { cache: new Map() }; const ikA = new T.Vector3(), ikB = new T.Vector3(), ikC = new T.Vector3(), ikT = new T.Vector3(), ikP = new T.Vector3(), ikD = new T.Vector3(), ikE = new T.Vector3();
+  const RS = { stand: 0, comp: 0, dab: 0, airPrev: false, hip: new T.Vector3(), vyPrev: 0 };
+  function curBikeRig() {
+    const k = S.mode === 'bike' ? 'b' + (S.bv || 0) : S.mode; if (RIG.cache.has(k)) return RIG.cache.get(k);
+    const b = S.mode !== 'bike' ? null : S.bv === 4 ? bike5 : S.bv === 3 ? bike4 : S.bv === 2 ? bike3 : S.bv === 1 ? bike2 : null;
+    const seat = SEAT.clone(), rig = { seat, grips: null, steer: null, pegs: null, R0: bike.pitch.position.y };
+    if (b && b.root) {
+      // grips: the outermost points of the handlebar (fork_bars top), measured once from the mesh
+      const fb = (() => { let f = null; b.root.traverse(o => { if (!f && o.isMesh && /fork_bars|fork/i.test(o.name)) f = o; }); return f; })();
+      if (fb) {
+        bike.pitch.updateMatrixWorld(true); const pos = fb.geometry.attributes.position, P = [];
+        for (let i = 0; i < pos.count; i += 3) { const v = new T.Vector3().fromBufferAttribute(pos, i).applyMatrix4(fb.matrixWorld); bike.pitch.worldToLocal(v); P.push(v); }
+        const top = Math.max(...P.map(v => v.y)), hi = P.filter(v => v.y > top - 0.12);
+        const L = hi.reduce((a, v) => v.x < a.x ? v : a, hi[0]), Rr = hi.reduce((a, v) => v.x > a.x ? v : a, hi[0]);
+        const st = b.dw && b.dw.steer; rig.steer = st || null;
+        const toSt = v => { const w = bike.pitch.localToWorld(v.clone()); return st ? st.worldToLocal(w) : v.clone(); };
+        // grip centre ~6 cm in from the bar ends
+        rig.grips = [toSt(L.clone().lerp(Rr, 0.06)), toSt(Rr.clone().lerp(L, 0.06))];
+      }
+    }
+    if (!rig.grips) rig.grips = [seat.clone().add(V(-0.33, 0.38, -0.58)), seat.clone().add(V(0.33, 0.38, -0.58))];
+    // pegs: below and just ahead of the seat front, about 0.33 m above the ground scaled with the bike
+    const g = -rig.R0, h = Math.max(0.25, (seat.y - g) * 0.36);
+    rig.pegs = [V(-0.17, g + h, seat.z - 0.12), V(0.17, g + h, seat.z - 0.12)];
+    RIG.cache.set(k, rig); return rig;
+  }
+  // rotate bone so that the direction to its child points at a pitch-frame/world target (world-space math)
+  function aimAt(bn, childPos, targetW) {
+    bn.getWorldPosition(ikD); const cur = childPos.clone().sub(ikD).normalize(), tgt = targetW.clone().sub(ikD).normalize();
+    if (cur.lengthSq() < 1e-8 || tgt.lengthSq() < 1e-8) return;
+    const dq = new T.Quaternion().setFromUnitVectors(cur, tgt), wq = bn.getWorldQuaternion(new T.Quaternion());
+    const pq = bn.parent.getWorldQuaternion(new T.Quaternion()).invert(); bn.quaternion.copy(pq.multiply(dq.multiply(wq))); bn.updateMatrixWorld(true);
+  }
+  function ik2(n1, n2, n3, targetW, poleW, w) {
+    const a = bike.bones[n1], b = bike.bones[n2], c = bike.bones[n3]; if (!a || !b || !c || w <= 0.001) return;
+    const q1 = a.quaternion.clone(), q2 = b.quaternion.clone();
+    a.getWorldPosition(ikA); b.getWorldPosition(ikB); c.getWorldPosition(ikC);
+    const la = ikA.distanceTo(ikB), lb = ikB.distanceTo(ikC), to = targetW.clone().sub(ikA), d = clamp(to.length(), Math.abs(la - lb) + 1e-3, la + lb - 1e-3);
+    const dir = to.normalize(), pl = poleW.clone().sub(ikA); const perp = pl.sub(dir.clone().multiplyScalar(pl.dot(dir))).normalize();
+    const cosA = clamp((la * la + d * d - lb * lb) / (2 * la * d), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
+    const elbow = ikA.clone().add(dir.clone().multiplyScalar(la * cosA)).add(perp.multiplyScalar(la * sinA));
+    aimAt(a, ikB, elbow); b.getWorldPosition(ikB); c.getWorldPosition(ikC); aimAt(b, ikC, targetW);
+    if (w < 1) { a.quaternion.copy(q1.slerp(a.quaternion.clone(), w)); b.quaternion.copy(q2.slerp(b.quaternion.clone(), w)); }
+    a.updateMatrixWorld(true);
+  }
+  function riderBody(dt, fresh, trickW) {
+    const rd = bike.rider, rig = curBikeRig(); if (!rd || !rig) return;
+    const air = S.y > S.gy + 0.08, sp = Math.abs(S.v), k = fresh ? 1 : 1 - Math.exp(-dt * 6);
+    // standing over bumps / in the air / fast off-camber, sitting when cruising
+    const bump = Math.abs(S.vy - RS.vyPrev) / Math.max(dt, 1e-3); RS.vyPrev = S.vy;
+    const standT = clamp((air ? 1 : 0) + clamp((bump - 6) / 20, 0, 1) + clamp((sp - 22) / 10, 0, 0.6), 0, 1) * (S.th > 0.28 ? 0.2 : 1);
+    RS.stand += (standT - RS.stand) * (standT > RS.stand ? k : k * 0.35);
+    if (RS.airPrev && !air) RS.comp = 1; RS.airPrev = air; RS.comp = Math.max(0, RS.comp - dt * 2.5);   // landing: soak it up
+    const dabT = sp < 1.2 && !air && S.th < 0.1 ? 1 : 0; RS.dab += (dabT - RS.dab) * k;
+    const wheelie = clamp(S.th / 1.0, 0, 1), turn = clamp(S.st * clamp(sp / 10, 0, 1), -1, 1);
+    // hips: up/forward when standing, back on wheelies, down on landings, inward in turns
+    RS.hip.set(turn * 0.07, RS.stand * 0.2 - Math.sin(RS.comp * Math.PI) * 0.12, -RS.stand * 0.1 + wheelie * 0.12);
+    rd.position.add(RS.hip.clone().multiplyScalar(1 - trickW));
+    // upper body: lean into the turn and forward when standing, back on wheelies
+    const sp2 = bike.bones.Spine01; if (sp2) { const q = new T.Quaternion().setFromEuler(new T.Euler((RS.stand * 0.35 - wheelie * 0.25 + RS.comp * 0.3) * (1 - trickW), 0, turn * 0.25 * (1 - trickW))); sp2.quaternion.multiply(q); }
+    rd.updateMatrixWorld(true); bike.pitch.updateMatrixWorld(true);
+    const W = 1 - trickW, toW = v => bike.pitch.localToWorld(v.clone());
+    for (let i = 0; i < 2; i++) {
+      const side = i ? 'Right' : 'Left', sx = i ? 1 : -1;
+      // hands on the grips (grips ride on steer_F when the bike has one)
+      const g = rig.steer ? rig.steer.localToWorld(rig.grips[i].clone()) : toW(rig.grips[i]);
+      ik2(side + 'Arm', side + 'ForeArm', side + 'Hand', g, toW(rig.seat.clone().add(V(sx * 0.7, 0.3, 0.6))), W);
+      // feet on the pegs; left foot dabs the ground at walking pace
+      let f = toW(rig.pegs[i].clone().add(V(0, 0.07, 0.04)));
+      if (i === 0 && RS.dab > 0.01) f.lerp(toW(V(-0.42, -rig.R0 + 0.08, rig.pegs[0].z - 0.05)), RS.dab);
+      ik2(side + 'UpLeg', side + 'Leg', side + 'Foot', f, toW(rig.seat.clone().add(V(sx * 0.35, 0.1, -0.9))), W);
+    }
+  }
   const trickEl = document.getElementById('trick'), trickName = trickEl.querySelector('.tn'), trickSub = trickEl.querySelector('.ts'), trickPad = document.getElementById('tricks');
   function trickToast(name, sub, bail) {
     const txt = name + '|' + sub + '|' + (bail ? 1 : 0); if (txt === TR.lastTxt) return; TR.lastTxt = txt;
@@ -3232,7 +3331,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       const comp = clamp(S.thr * 0.02 - (inp.brake ? 0.04 : 0), -0.04, 0.02);
       if (bike.parts.ForkLower && bike.parts.ForkLower.userData.rest) bike.parts.ForkLower.position.y = bike.parts.ForkLower.userData.rest.y + comp;
     }
-    { const dw = S.bv === 3 ? bike4.dw : S.bv === 2 ? bike3.dw : S.bv ? bike2.dw : bike.dw; if (S.mode === 'bike' && dw && dw.rear) { const ds = S.v / dw.R * dt; dw.rear.rotation.x += ds; if (dw.front) { dw.front.rotation.x += ds; if (dw.steer) dw.steer.rotation.y = -S.st * 0.35; else dw.front.rotation.y = -S.st * 0.35; } } }
+    { const dw = S.bv === 4 ? bike5.dw : S.bv === 3 ? bike4.dw : S.bv === 2 ? bike3.dw : S.bv ? bike2.dw : bike.dw; if (S.mode === 'bike' && dw && dw.rear) { const ds = S.v / dw.R * dt; dw.rear.rotation.x += ds; if (dw.front) { dw.front.rotation.x += ds; if (dw.steer) dw.steer.rotation.y = -S.st * 0.35; else dw.front.rotation.y = -S.st * 0.35; } } }
     if (S.mode === 'quad' && quad.ok) { const qsp = S.v / quad.R * dt; for (const w of quad.wheels) w.rotation.x += qsp; for (const w of quad.front) w.rotation.y = -S.st * 0.45; }
     if (S.mode === 'grom') { const gsp = S.v / grom.R * dt * (grom.spin || 1); grom.rear.rotation.x -= gsp; grom.front.rotation.x -= gsp; grom.steer.rotation.y = -S.st * 0.35; }
     if (S.state === 'crash') bike.lean.rotation.z = S.crash.roll * S.crash.rollDir;
@@ -3248,6 +3347,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
           trickOff.set(0, 0, 0); for (const k in TR.e) { const o = TRICK_OFF[k], e = TR.e[k] || 0; trickOff.x += o[0] * e; trickOff.y += o[1] * e; trickOff.z += o[2] * e; }
           if (fresh) TR.off.copy(trickOff); else TR.off.lerp(trickOff, 1 - Math.exp(-dt * POSE_K));
           rd.position.copy(rd.userData.seat).add(TR.off);
+          { let tw = 0; for (const kk in TR.e) tw += TR.e[kk] || 0; riderBody(dt, fresh, clamp(tw, 0, 1)); }
         }
       }
     }
@@ -3528,7 +3628,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
   function follow(root, p) { let o = root; for (const i of p || []) o = o && o.children[i]; return o || null; }
   function cloneRide(m, P) {
     if (m === 'z350' && !car.models.z350) return null;
-    const src = m === 'bike4' ? bike4.root : m === 'bike3' ? bike3.root : m === 'bike2' ? bike2.root : m === 'bike' ? bike.model : m === 'grom' ? grom.root : m === 'quad' ? quad.root : m === 'z350' ? car.models.z350.grp : car.body; if (!src) return null;
+    const src = m === 'bike5' ? bike5.root : m === 'bike4' ? bike4.root : m === 'bike3' ? bike3.root : m === 'bike2' ? bike2.root : m === 'bike' ? bike.model : m === 'grom' ? grom.root : m === 'quad' ? quad.root : m === 'z350' ? car.models.z350.grp : car.body; if (!src) return null;
     const c = src.clone(); c.visible = true;
     // a G35 peer clones the whole car body: show its G35 and hide this player's other car model in the copy
     if (m === 'car') for (const k in car.models) { const o = follow(c, pathTo(src, car.models[k].grp)); if (o) o.visible = k === 'g35'; }
@@ -3536,6 +3636,7 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     const map = arr => arr.filter(Boolean).map(o => follow(c, pathTo(src, o))).filter(Boolean);
     if (m === 'bike' && bike.dw) { spin = map([bike.dw.rear, bike.dw.front]); steer = map([bike.dw.front]); }
     if (m === 'bike2' && bike2.dw) { spin = map([bike2.dw.rear, bike2.dw.front]); steer = map([bike2.dw.steer || bike2.dw.front]); }
+    if (m === 'bike5' && bike5.dw) { spin = map([bike5.dw.rear, bike5.dw.front]); steer = map([bike5.dw.steer || bike5.dw.front]); }
     if (m === 'bike4' && bike4.dw) { spin = map([bike4.dw.rear, bike4.dw.front]); steer = map([bike4.dw.steer || bike4.dw.front]); }
     if (m === 'bike3' && bike3.dw) { spin = map([bike3.dw.rear, bike3.dw.front]); steer = map([bike3.dw.steer || bike3.dw.front]); }
     if (m === 'grom') { spin = map([grom.rear, grom.front]); steer = map([grom.steer]); }
@@ -3569,10 +3670,10 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     P.d = d; P.seen = performance.now();
     const nm = String(d.n || 'Rider').slice(0, 14);
     if (nm !== P.name) { P.name = nm; if (P.tag) P.root.remove(P.tag); P.tag = nameTag(nm); P.root.add(P.tag); }
-    let m = NET_MODES[d.m] || 'bike'; if (m === 'bike' && d.bv === 3) m = 'bike4'; else if (m === 'bike' && d.bv === 2) m = 'bike3'; else if (m === 'bike' && d.bv) m = 'bike2'; if (m === 'car' && d.cm === 1) m = 'z350';
+    let m = NET_MODES[d.m] || 'bike'; if (m === 'bike' && d.bv === 4) m = 'bike5'; else if (m === 'bike' && d.bv === 3) m = 'bike4'; else if (m === 'bike' && d.bv === 2) m = 'bike3'; else if (m === 'bike' && d.bv) m = 'bike2'; if (m === 'car' && d.cm === 1) m = 'z350';
     if (m !== P.mode) {
       P.mode = m;
-      if (m === 'quad' && !quad.ok) ensureQuad(); if (m === 'bike2') ensureBike2(); if (m === 'bike3') ensureBike3(); if (m === 'bike4') ensureBike4(); if (m === 'grom') ensureGrom(); if (m === 'car') ensureG35(); if (m === 'z350') ensureZ350();
+      if (m === 'quad' && !quad.ok) ensureQuad(); if (m === 'bike2') ensureBike2(); if (m === 'bike3') ensureBike3(); if (m === 'bike4') ensureBike4(); if (m === 'bike5') ensureBike5(); if (m === 'grom') ensureGrom(); if (m === 'car') ensureG35(); if (m === 'z350') ensureZ350();
       for (const k in P.rides) P.rides[k].obj.visible = false;
     }
   }
@@ -3597,9 +3698,9 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
       tmpN.set(d.p[0] + f.x * Math.min(lead, 2), d.p[1], d.p[2] + f.z * Math.min(lead, 2));
       if (!P.init) { P.root.position.copy(tmpN); P.root.rotation.set(d.r[0], d.r[1], 0); P.lean.rotation.z = d.l; P.pitch.rotation.x = d.th; P.init = true; }
       else { P.root.position.lerp(tmpN, a); P.root.rotation.x += (d.r[0] - P.root.rotation.x) * a; P.root.rotation.y = angLerp(P.root.rotation.y, d.r[1], a); P.lean.rotation.z += ((inCar ? 0 : d.l) - P.lean.rotation.z) * a; P.pitch.rotation.x += ((inCar ? 0 : d.th) - P.pitch.rotation.x) * a; }
-      P.pitch.position.y = inCar ? 0 : m === 'grom' ? grom.R : m === 'quad' ? quad.R : m === 'bike4' ? bike4.R0 : m === 'bike3' ? bike3.R0 : m === 'bike2' ? bike2.R0 : (bike.R0 || R);
+      P.pitch.position.y = inCar ? 0 : m === 'grom' ? grom.R : m === 'quad' ? quad.R : m === 'bike5' ? bike5.R0 : m === 'bike4' ? bike4.R0 : m === 'bike3' ? bike3.R0 : m === 'bike2' ? bike2.R0 : (bike.R0 || R);
       if (R0) {
-        const rad = m === 'bike4' ? bike4.R0 : m === 'bike3' ? bike3.R0 : m === 'bike2' ? bike2.R0 : m === 'bike' ? (bike.dw ? bike.dw.R : R) : m === 'grom' ? grom.R : m === 'quad' ? quad.R : m === 'z350' ? car.models.z350.R : (car.models.g35 ? car.models.g35.R : CR), sg = m === 'grom' ? -(grom.spin || 1) : inCar ? -1 : 1, sp = d.v / rad * dt * sg;
+        const rad = m === 'bike5' ? bike5.R0 : m === 'bike4' ? bike4.R0 : m === 'bike3' ? bike3.R0 : m === 'bike2' ? bike2.R0 : m === 'bike' ? (bike.dw ? bike.dw.R : R) : m === 'grom' ? grom.R : m === 'quad' ? quad.R : m === 'z350' ? car.models.z350.R : (car.models.g35 ? car.models.g35.R : CR), sg = m === 'grom' ? -(grom.spin || 1) : inCar ? -1 : 1, sp = d.v / rad * dt * sg;
         for (const w of R0.spin) w.rotation.x += sp;
         for (const w of R0.steer) w.rotation.y = -d.st * (m === 'quad' ? 0.45 : inCar ? 0.55 : 0.35);
       }
@@ -3624,6 +3725,8 @@ kbd{font-family:var(--round);font-weight:700;font-size:13px;min-width:24px;paddi
     const dt = Math.min(0.1, (now - last) / 1000); last = now;
     if (document.hidden || S.paused) return;
     update(dt); netTick(dt); autoQuality(dt); g3dFrame(dt); updatePOIs(dt, S.x, S.z, g3dOn && G3D && G3D.calibrated ? (x, z) => { const y = G3D.groundAt(x, z, H(x, z) + 40); return y === null || Math.abs(y - H(x, z)) > 15 ? null : y; } : null);
+    // preview/debug: ?cam=side holds the camera beside the rider (used for animation checks)
+    if (SIDECAM && S.state === 'ride' && bike.pitch) { bike.pitch.updateMatrixWorld(true); camera.position.copy(bike.pitch.localToWorld(ikT.set(-3.4, 0.6, -0.55))); camera.up.set(0, 1, 0); camera.lookAt(bike.pitch.localToWorld(ikP.set(0, 0.45, -0.55))); }
     if (QL[quality].post) composer.render(); else renderer.render(scene, camera);
     window.__perf = renderer.info.render;
   }
