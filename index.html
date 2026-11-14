@@ -118,7 +118,7 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
 <div id="tricks" class="tricks" hidden aria-label="Wheelie tricks"><button type="button" data-trick="seatstand">1 Seat stand</button><button type="button" data-trick="kneeknock">2 Knee knock</button><button type="button" data-trick="nohander">3 No hands</button><button type="button" data-trick="footdrag">4 Foot drag</button></div>
 <div id="touch" class="touch" hidden>
   <div class="pad"><button data-in="left" aria-label="Steer left">◀</button><button data-in="right" aria-label="Steer right">▶</button></div>
-  <div class="pad main"><div class="util"><button id="swapBtn" data-in="swap" aria-label="Switch ride">Grom</button><button data-in="home" aria-label="Back to the boat house">T</button><button data-in="respawn" aria-label="Respawn">R</button></div><button class="b-s" data-in="brake" aria-label="Brake">S</button><button class="b-pop" data-in="pop" aria-label="Pop wheelie or handbrake">Pop</button><button class="b-gas big" data-in="gas" aria-label="Gas">Gas</button></div>
+  <div class="pad main"><div class="util"><button id="swapBtn" data-in="swap" aria-label="Switch ride">Grom</button><button data-in="home" aria-label="Back to the boat house">T</button><button data-in="respawn" aria-label="Respawn">R</button></div><button class="b-s" data-in="brake" aria-label="Brake">S</button><button class="b-pop" data-in="pop" aria-label="Hold to lean back (wheelie with gas) or handbrake">Lean</button><button class="b-gas big" data-in="gas" aria-label="Gas">Gas</button></div>
 </div>
 
 <div id="panel" class="panel">
@@ -127,9 +127,11 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
     <p id="psub">Real Oakland streets with hills, the 880 and BART overhead. You start in the Sailboat House lot on Lake Merritt. Press F to switch rides: dirt bike, Grom, Banshee quad and car. Turn Online on to ride with others; share a crew code to ride with just your friends.</p>
     <div id="keys" class="keys">
       <div><kbd>W</kbd><span>Gas</span></div>
-      <div><kbd>S</kbd><kbd>E</kbd><span>Brake</span></div>
+      <div><kbd>S</kbd><span>Brake</span></div>
       <div><kbd>A</kbd><kbd>D</kbd><span>Steer</span></div>
-      <div><kbd>Space</kbd><span>Wheelie / handbrake</span></div>
+      <div><kbd>Space</kbd><span>Lean back: hold with gas to wheelie / handbrake</span></div>
+      <div><kbd>Q</kbd><kbd>E</kbd><span>Shift down / up (manual from first press)</span></div>
+      <div><kbd>RT</kbd><kbd>LT</kbd><span>Controller: gas / brake, left stick steers and leans, LB / RB shift</span></div>
       <div><kbd>R</kbd><span>Respawn</span></div>
       <div><kbd>T</kbd><span>Boat house</span></div>
       <div><kbd>C</kbd><span>Cycle camera</span></div>
@@ -2587,8 +2589,30 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
   window.__S = S; // read-only handle for automated ride tests
   // after a phone's graphics reset (context lost -> reload) pick up where the rider was instead of back at the boat house
   try { const r = JSON.parse(sessionStorage.getItem('rob-resume') || 'null'); sessionStorage.removeItem('rob-resume'); if (r && Date.now() - r.t < 120000 && isFinite(r.x)) { S.x = r.x; S.z = r.z; S.yaw = r.yaw; S.resumed = true; } } catch (e) {}
-  const inp = { gas: false, brake: false, left: false, right: false, hb: false };
+  const inp = { gas: false, brake: false, left: false, right: false, hb: false, lean: false };
   let popQueued = false;
+  // ---------- gamepad (standard mapping): RT gas, LT brake, left stick steers and leans (pull back = weight back, wheelie with gas),
+  // RB / LB shift up / down, Start pauses. Analog values live in PAD; the boolean inp flags follow them on change so keyboard still works.
+  const PAD = { on: false, gas: 0, brk: 0, st: 0, lean: 0, prev: {}, btn: [] };
+  let shiftReq = 0;
+  window.__pollPad = () => pollPad(); // test handle
+  function pollPad() {
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    let gp = null; for (const g of pads || []) if (g && g.connected) { gp = g; break; }
+    if (!gp) { if (PAD.on) { PAD.gas = PAD.brk = PAD.st = PAD.lean = 0; } return; }
+    const b = i => (gp.buttons[i] ? gp.buttons[i].value || (gp.buttons[i].pressed ? 1 : 0) : 0);
+    const dz = (v, d) => Math.abs(v) < d ? 0 : (v - Math.sign(v) * d) / (1 - d);
+    const lx = gp.axes[0] || 0, ly = gp.axes[1] || 0;
+    PAD.gas = b(7); PAD.brk = b(6); PAD.st = dz(lx, 0.14);
+    PAD.lean = ly > 0 ? dz(ly, 0.18) : -dz(-ly, 0.35); // + = pulled back
+    if (PAD.gas > 0.05 || PAD.brk > 0.05 || PAD.st || PAD.lean) PAD.on = true;
+    const flags = { gas: PAD.gas > 0.1, brake: PAD.brk > 0.1, left: lx < -0.5, right: lx > 0.5, lean: PAD.lean > 0.25 };
+    for (const k in flags) { if (flags[k] !== PAD.prev[k]) { inp[k] = flags[k]; PAD.prev[k] = flags[k]; } }
+    const edge = i => { const now = b(i) > 0.5, was = PAD.btn[i]; PAD.btn[i] = now; return now && !was; };
+    if (edge(5)) shiftReq++;
+    if (edge(4)) shiftReq--;
+    if (edge(9) && S.state !== 'menu') togglePause();
+  }
 
   // ---------- smoke
   const smokeTex = (function () { const [c, x] = makeCanvas(64, 64); const g = x.createRadialGradient(32, 32, 2, 32, 32, 30); g.addColorStop(0, 'rgba(255,255,255,.9)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new T.CanvasTexture(c); })();
@@ -2610,9 +2634,9 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
     if (!audio) return;
     const kmh = S.v * KMH;
     const lo = [0, 0, 22, 46][S.gear] || 0, hi = [0, 22, 46, 90][S.gear] || 90, inCar = S.mode === 'car', sp = Math.abs(S.v), cg = Math.min(4, Math.floor(sp / 11));
-    const rpm = inCar ? 0.08 + clamp((sp - cg * 11) / 11, 0, 1) * 0.7 + S.thr * 0.2 : 0.08 + clamp((kmh - lo) / (hi - lo), 0, 1) * 0.72 + S.thr * 0.2;
+    const rpm = inCar ? 0.08 + clamp((sp - cg * 11) / 11, 0, 1) * 0.7 + S.thr * 0.2 : S.mode === 'bike' ? 0.08 + clamp(S.rpm || 0, 0, 1) * 0.72 + S.thr * 0.2 : 0.08 + clamp((kmh - lo) / (hi - lo), 0, 1) * 0.72 + S.thr * 0.2;
     camera.getWorldDirection(_camFwd);
-    audio.update({ S, dt, electric: S.mode === 'bike' && S.bv === 4, rpm: Math.min(1, rpm), limiter: rpm > 0.97 || (S.gear === 3 && kmh > 85), brake: !!(inp.brake || inp.hb), crashType: S.crash && S.crash.type,
+    audio.update({ S, dt, electric: S.mode === 'bike' && S.bv === 4, rpm: Math.min(1, rpm), limiter: rpm > 0.97 || (S.mode === 'quad' && S.gear === 3 && kmh > 85), brake: !!(inp.brake || inp.hb), crashType: S.crash && S.crash.type,
       camera, camFwd: _camFwd, lake: [-176, 586], party: AUD_PARTY, trucks: AUD_TRUCKS });
   }
   function syncVolUI() { for (const el of document.querySelectorAll('.vol input')) { const k = el.dataset.k; if (audio) el.value = Math.round(audio.vol[k] * 100); } }
@@ -2633,36 +2657,84 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
     slideMinV: 5, slideYaw: 0.9, slideDrag: 0.22, slideAngle: 0.45, // brake + steer at speed: rear steps out
     wallKmh: 30,                       // wall hit speed that bails (was 24)
     loopGrace: 0.3, loopHard: 0.32,    // past the loop-out angle you get 0.3 s to save it (lay off the gas / brake) unless way over
+    // gearbox and wheelie, matched to the Roblox reference clips (docs/wheelie-reference-review.md in egg-heist)
+    gearTop: [0, 29, 44, 58, 71, 85].map(mph => mph / 2.237),   // m/s at the limiter per gear
+    gearLow: [0, 0, 29, 44, 58, 71].map(mph => mph / 2.237),    // bottom of each gear's band
+    gearAcc: [0, 2.6, 1.9, 1.35, 1.0, 0.68],                     // m/s^2 at full gas: 0-60 mph ~17 s, top ~85 mph
+    gearLift: [0, 9.6, 9.3, 9.0, 8.8, 8.6],                      // wheelie torque per gear (gravity at rest is ~8.8)
+    leanBase: 0.75, leanGain: 0.6,     // torque cap: 75 % of the gear's lift with no lean, 135 % at full lean
+    ceilMax: 1.5, leanDead: 0.12,      // full lean asks for 1.5 rad (~86 deg, past the 78 deg balance point); the first 12 % of stick does nothing
+    wheelieK: 14, wheelieC: 5,         // spring (1/s^2) and extra damping toward the lean-set angle while on the gas
+    keyLeanIn: 0.9,                    // Space / Lean button ramp (1/s): tap for a small wheelie, hold for a big one
+    liftKmh: 11, holdKmh: 4,           // front comes up from ~9-10 mph, can be carried down to ~3 mph
+    wheelieBleed: 0.3,                 // drive lost when vertical (a held wheelie slowly scrubs speed)
+    brake: 11,                         // m/s^2 on the ground: ~84 mph to 0 in ~3.5 s
+    stoppie: 0.2,                      // max rear lift (rad) under full braking at speed
+    tipPitch: 0.75, tipSteer: 0.7, tipTime: 0.5, // steering past 70 % lock with the front above ~43 deg for 0.5 s falls over sideways
     bikes: { 0: { acc: 1, steer: 1 }, 1: { acc: 1, steer: 1 }, 2: { acc: 1.05, steer: 1 }, 3: { acc: 1.15, steer: 0.95, pop: 1.1 }, 4: { acc: 0.9, steer: 1.12, grav: 0.92, pop: 0.9 } }
   };
   window.__RIDE = RIDE; window.__phys = h => physics(h); window.__inp = inp; // test handles (read/tune only)
   function physics(h) {
     const kmh = S.v * KMH, BK = RIDE.bikes[S.mode === 'bike' ? (S.bv || 0) : 0] || RIDE.bikes[0];
-    S.thr += ((inp.gas ? 1 : 0) - S.thr) * Math.min(1, h * 25);
-    S.gasA = (S.gasA || 0) + ((inp.gas ? 1 : 0) - (S.gasA || 0)) * Math.min(1, h * (inp.gas ? RIDE.gasUp : RIDE.gasDown));
-    S.brkA = (S.brkA || 0) + ((inp.brake ? 1 : 0) - (S.brkA || 0)) * Math.min(1, h * (inp.brake ? RIDE.brakeUp : 12));
-    const prevGear = S.gear;
-    S.gear = kmh < 21.5 ? 1 : kmh < 45.5 ? 2 : 3;
-    if (S.gear < prevGear && kmh > (prevGear === 2 ? 19 : 43)) S.gear = prevGear;
-    if (S.gear > prevGear && S.thr > 0.6 && S.th < 0.4) S.om += 0.9;
+    const gasIn = Math.max(inp.gas ? 1 : 0, PAD.gas), brkIn = Math.max(inp.brake ? 1 : 0, PAD.brk);
+    const leanIn = PAD.lean ? PAD.lean : inp.lean ? 1 : 0;
+    // the stick is proportional; Space / the Lean button ramps in so holding it longer lifts higher
+    S.leanA = (S.leanA || 0) + (leanIn - (S.leanA || 0)) * Math.min(1, h * (PAD.lean ? 10 : leanIn > (S.leanA || 0) ? RIDE.keyLeanIn : 4));
+    S.thr += (gasIn - S.thr) * Math.min(1, h * 25);
+    S.gasA = (S.gasA || 0) + (gasIn - (S.gasA || 0)) * Math.min(1, h * (gasIn > S.gasA ? RIDE.gasUp : RIDE.gasDown));
+    S.brkA = (S.brkA || 0) + (brkIn - (S.brkA || 0)) * Math.min(1, h * (brkIn > S.brkA ? RIDE.brakeUp : 12));
+    // five-speed box (bands from the Roblox reference: 29 / 44 / 58 / 71 / 85 mph); 0 = neutral.
+    // Auto-shifts until the rider first uses Q / E or LB / RB, then stays manual.
+    const GT = RIDE.gearTop, GL = RIDE.gearLow, prevGear = S.gear;
+    if (shiftReq) { S.manual = true; S.gear = clamp(S.gear + shiftReq, 0, 5); shiftReq = 0; }
+    if (!S.manual) {
+      if (S.gear === 0) S.gear = 1;
+      if (S.gear < 5 && S.v >= GT[S.gear] * 0.97) S.gear++;
+      else if (S.gear > 1 && S.v < GT[S.gear - 1] * 0.8) S.gear--;
+    }
+    if (S.gear > prevGear && prevGear > 0 && S.thr > 0.6 && S.th < 0.4) S.om += 0.9;
+    const g = S.gear, rpmF = g ? S.v / GT[g] : 0.15 + 0.85 * S.thr;
+    S.rpm = clamp(rpmF, 0, 1.05);
 
-    const sliding = inp.brake && Math.abs(S.st) > 0.4 && S.v > RIDE.slideMinV && S.th < 0.2 && S.y <= S.gy + 0.05;
-    const acc = S.gasA * BK.acc * (S.gear === 1 ? 3.4 : S.gear === 2 ? 1.05 : 0.7 * Math.max(0, 1 - kmh / 95));
-    let dec = 0.55 * (1 - S.gasA);
-    if (S.brkA > 0.01) dec = Math.max(dec, S.brkA * (sliding ? 2.6 : S.th > 0.05 ? 2.5 : 7.6));
+    const sliding = brkIn > 0.1 && Math.abs(S.st) > 0.4 && S.v > RIDE.slideMinV && S.th < 0.2 && S.y <= S.gy + 0.05;
+    let acc = 0;
+    if (g) {
+      const lug = GL[g] > 0 ? clamp(0.25 + 0.75 * S.v / GL[g], 0.25, 1) : 1;  // a tall gear from low speed pulls weakly
+      const lim = clamp((1 - rpmF) / 0.04, 0, 1);                                // rev limiter
+      acc = S.gasA * BK.acc * RIDE.gearAcc[g] * lug * lim * (1 - RIDE.wheelieBleed * clamp(S.th / 1.2, 0, 1));
+    }
+    let dec = 0.55 * (1 - S.gasA) + (g && rpmF > 1 ? 2 : 0);                    // over-rev after a downshift: engine braking
+    if (S.brkA > 0.01) dec = Math.max(dec, S.brkA * (sliding ? 2.6 : S.th > 0.05 ? 3.5 : RIDE.brake));
     { const f0 = forward(S.yaw), slope = (H(S.x + f0.x * 4, S.z + f0.z * 4) - H(S.x - f0.x * 4, S.z - f0.z * 4)) / 8; S.v = Math.max(0, S.v + (acc - dec - 9.8 * slope * 0.8) * h); }
 
-    let tq = -9 * Math.sin(BAL - S.th);
-    if (inp.gas) tq += S.gear === 1 ? 9.6 * (0.5 + 0.5 * clamp(kmh / 18, 0, 1)) : S.gear === 2 ? 8.2 : 7.4;
-    if (popQueued) { if (S.th < 0.9 && kmh > 3) S.om += 3.6 * (BK.pop || 1); popQueued = false; }
-    if (inp.brake && S.th > 0) tq -= 16;
+    // wheelie: gas plus weight back (left stick back / Space) lifts the front; gas alone will not. It only comes up above
+    // ~9 mph and can be carried down to ~3 mph. Stick forward or the brake puts it down.
+    let tq = -9 * Math.sin(BAL - S.th), eng = 0;
+    if (g) {
+      // How far back the rider leans sets the angle the front settles at (0 with no lean, ~86 deg at full lean). Gas holds the
+      // bike there: drive cancels gravity and springs toward that angle, capped by what the gear can deliver, so tall gears lift
+      // slowly. Full lean sits past the balance point, so holding it all the way back eventually loops out.
+      const liftOK = S.th < 0.1 ? clamp((kmh - RIDE.liftKmh) / 5, 0, 1) : clamp((kmh - RIDE.holdKmh) / 5, 0, 1);
+      const lb = Math.max(0, S.leanA), want = RIDE.ceilMax * clamp((lb - RIDE.leanDead) / (1 - RIDE.leanDead), 0, 1);
+      const maxT = RIDE.gearLift[g] * (BK.pop || 1) * (RIDE.leanBase + RIDE.leanGain * lb);
+      eng = S.gasA * liftOK;
+      tq += eng * clamp(9 * Math.sin(BAL - S.th) + RIDE.wheelieK * (want - S.th), 0, maxT);
+    }
+    if (S.leanA < 0 && S.th > 0) tq += 7 * S.leanA;
+    if (brkIn > 0.1 && S.th > 0) tq -= 16 * brkIn;
+    tq -= RIDE.wheelieC * eng * S.om;
     if (S.v < 1.5 && S.th > 0.1) tq -= 8;
     tq -= 1.6 * S.om;
     S.om += tq * h; S.th += S.om * h;
     if (S.th < 0) { S.th = 0; S.om = Math.max(0, S.om) * 0; }
     if (S.th > LOOP) { S.loopT = (S.loopT || 0) + h; if (S.loopT > RIDE.loopGrace || S.th > LOOP + RIDE.loopHard) { S.loopT = 0; doCrash('loop'); return; } } else S.loopT = 0;
+    // steering hard while high on one wheel tips the bike over sideways
+    if (S.th > RIDE.tipPitch && Math.abs(S.st) > RIDE.tipSteer && kmh > 12) { S.tipT = (S.tipT || 0) + h; if (S.tipT > RIDE.tipTime) { S.tipT = 0; doCrash('tip'); return; } } else S.tipT = Math.max(0, (S.tipT || 0) - h * 2);
+    // stoppie: hard braking at speed lifts the rear (visual pitch about the front axle)
+    { const hard = S.brkA > 0.5 && S.th < 0.05 && S.v > 6 && S.y <= S.gy + 0.05, tgt = hard ? clamp((S.v - 6) / 14, 0, 1) * RIDE.stoppie * S.brkA : 0;
+      S.endo = (S.endo || 0) + (tgt - (S.endo || 0)) * Math.min(1, h * (tgt > (S.endo || 0) ? 5 : 8)); }
 
-    const stT = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
+    const stT = PAD.on && PAD.st ? PAD.st : (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
     S.st += (stT - S.st) * Math.min(1, h * (stT ? RIDE.steerIn : RIDE.steerOut));
     const auth = BK.steer / (1 + Math.max(0, S.v - 8) / RIDE.steerFade);
     S.yaw -= S.st * auth * Math.max(inp.gas || S.v < 0.5 ? 0.35 : 0, Math.min(1.25, S.v / (3.5 + S.v * 0.35))) * (S.th > 0.35 ? 0.75 : 1) * h;
@@ -2712,7 +2784,7 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
   }
   function respawnHome() { S.x = MAP.spawn[0]; S.z = MAP.spawn[1]; S.yaw = MAP.spawn[2]; respawn(false); }
   function respawn(toRoad) {
-    S.state = 'ride'; S.crash = null; S.th = 0; S.om = 0; S.v = 0; S.thr = 0; S.st = 0; S.gasA = 0; S.brkA = 0; S.slip = 0; S.sus = 0; S.susV = 0; S.lean = 0; S.loopT = 0; S.gear = 1; S.vx = 0; S.vz = 0; S.vr = 0;
+    S.state = 'ride'; S.crash = null; S.th = 0; S.om = 0; S.v = 0; S.thr = 0; S.st = 0; S.gasA = 0; S.brkA = 0; S.slip = 0; S.sus = 0; S.susV = 0; S.lean = 0; S.loopT = 0; S.gear = 1; S.vx = 0; S.vz = 0; S.vr = 0; S.endo = 0; S.tipT = 0; S.leanA = 0; shiftReq = 0;
     const nr = toRoad === false ? null : nearestRoad(S.x, S.z);
     if (!nr && toRoad !== false) { S.x = MAP.spawn[0]; S.z = MAP.spawn[1]; S.yaw = MAP.spawn[2]; }
     if (nr) {
@@ -2920,7 +2992,7 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
     S.mode = next === 'bike2' || next === 'bike3' || next === 'bike4' || next === 'bike5' ? 'bike' : toCar ? 'car' : next; S.bv = next === 'bike5' ? 4 : next === 'bike4' ? 3 : next === 'bike3' ? 2 : next === 'bike2' ? 1 : 0;
     const f = forward(S.yaw); S.vx = f.x * S.v; S.vz = f.z * S.v; S.vr = 0;
     S.th = 0; S.om = 0; S.st = 0; S.thr = 0; popQueued = false;
-    if (!toCar) { S.v = Math.max(0, S.v); S.gear = 1; }
+    if (!toCar) { S.v = Math.max(0, S.v); S.gear = 1; } S.endo = 0; S.tipT = 0; shiftReq = 0;
     setRideVisuals(); unloadIdleBikes();
     if (!toCar) { seatRider(); S.lastLean = -1; }
     lastDial = '';
@@ -3099,11 +3171,13 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
   }
 
   // ---------- input
-  const KEYS = { KeyW: 'gas', ArrowUp: 'gas', KeyS: 'brake', KeyE: 'brake', ArrowDown: 'brake', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right' };
+  const KEYS = { KeyW: 'gas', ArrowUp: 'gas', KeyS: 'brake', ArrowDown: 'brake', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right' };
   addEventListener('keydown', e => {
     const k = KEYS[e.code];
     if (k) { inp[k] = true; e.preventDefault(); }
-    if (e.code === 'Space') { e.preventDefault(); inp.hb = true; if (!e.repeat && S.state === 'ride' && S.mode !== 'car') popQueued = true; }
+    if (e.code === 'Space') { e.preventDefault(); inp.hb = true; inp.lean = true; if (!e.repeat && S.state === 'ride' && S.mode === 'quad') popQueued = true; }
+    if (e.code === 'KeyE' && !e.repeat && S.mode === 'bike') shiftReq++;
+    if (e.code === 'KeyQ' && !e.repeat && S.mode === 'bike') shiftReq--;
     if (e.code === 'KeyF' && !e.repeat) toggleVehicle();
     if (e.code === 'KeyG' && !e.repeat) RS.standKey = !RS.standKey;  // standing wheelie (feet on seat + fender)
     if (e.code === 'KeyR' && !e.repeat && S.state !== 'menu') { S.respawnAt = S.t + 0.4; }
@@ -3112,7 +3186,7 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
     if ((e.code === 'Escape' || e.code === 'KeyP') && S.state !== 'menu') togglePause();
     if (e.code === 'Enter' && S.state === 'menu' && !goBtn.disabled) start();
   });
-  addEventListener('keyup', e => { const k = KEYS[e.code]; if (k) inp[k] = false; if (e.code === 'Space') inp.hb = false; });
+  addEventListener('keyup', e => { const k = KEYS[e.code]; if (k) inp[k] = false; if (e.code === 'Space') { inp.hb = false; inp.lean = false; } });
   addEventListener('blur', () => { for (const k in inp) inp[k] = false; });
   const camBtn = document.getElementById('camBtn'), pauseBtn = document.getElementById('pauseBtn'), goBtn = document.getElementById('go'), panel = document.getElementById('panel');
   const CAMS = ['chase', 'far', 'low', 'side', 'front', 'helmet', 'drone', 'orbit'], CAMN = { chase: 'Chase', far: 'Far chase', low: 'Low chase', side: 'Side tracking', front: 'Front facing', helmet: 'Helmet', drone: 'High drone', orbit: 'Cinematic orbit' };
@@ -3141,9 +3215,9 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
     const k = btn.dataset.in;
     const on = e => {
       e.preventDefault(); btn.classList.add('on'); try { btn.setPointerCapture(e.pointerId); } catch (_) {}
-      if (k === 'pop') { inp.hb = true; if (S.state === 'ride' && S.mode !== 'car') popQueued = true; } else if (k === 'swap') { toggleVehicle(); } else if (k === 'respawn') { if (S.state !== 'menu') S.respawnAt = S.t + 0.4; } else if (k === 'home') { if (S.state !== 'menu') { S.respawnAt = 0; respawnHome(); } } else inp[k] = true;
+      if (k === 'pop') { inp.hb = true; inp.lean = true; if (S.state === 'ride' && S.mode === 'quad') popQueued = true; } else if (k === 'swap') { toggleVehicle(); } else if (k === 'respawn') { if (S.state !== 'menu') S.respawnAt = S.t + 0.4; } else if (k === 'home') { if (S.state !== 'menu') { S.respawnAt = 0; respawnHome(); } } else inp[k] = true;
     };
-    const off = () => { btn.classList.remove('on'); if (k in inp) inp[k] = false; if (k === 'pop') inp.hb = false; };
+    const off = () => { btn.classList.remove('on'); if (k in inp) inp[k] = false; if (k === 'pop') { inp.hb = false; inp.lean = false; } };
     btn.addEventListener('pointerdown', on); btn.addEventListener('pointerup', off); btn.addEventListener('pointercancel', off); btn.addEventListener('lostpointercapture', off);
     btn.addEventListener('contextmenu', e => e.preventDefault());
   }
@@ -3418,13 +3492,13 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
   dx.setTransform(2, 0, 0, 2, 0, 0);
   let lastDial = '';
   function drawDial() {
-    const inCar = S.mode === 'car', kmh = Math.round(Math.abs(S.v) * KMH), gl = inCar ? (S.v < -0.3 ? 'R' : 'D') : String(S.gear), key = kmh + '|' + gl;
+    const inCar = S.mode === 'car', kmh = Math.round(Math.abs(S.v) * KMH), gl = inCar ? (S.v < -0.3 ? 'R' : 'D') : S.gear === 0 ? 'N' : String(S.gear), key = kmh + '|' + gl;
     if (key === lastDial) return; lastDial = key;
     dx.clearRect(0, 0, 130, 130);
     const cx = 72, cy = 66, r = 50;
     dx.beginPath(); dx.arc(cx, cy, r, 0, Math.PI * 2); dx.fillStyle = 'rgba(20,24,32,.18)'; dx.fill();
     dx.lineWidth = 2.5; dx.strokeStyle = 'rgba(255,255,255,.28)'; dx.stroke();
-    const frac = clamp(kmh / (inCar ? 170 : 90), 0, 1);
+    const frac = clamp(kmh / (inCar ? 170 : S.mode === 'bike' ? 140 : 90), 0, 1);
     if (frac > 0.005) {
       dx.beginPath(); dx.arc(cx, cy, r - 2, Math.PI * 0.62, Math.PI * (0.62 + frac * 0.86)); dx.lineWidth = 7; dx.lineCap = 'round'; dx.strokeStyle = '#ffd400'; dx.stroke();
     }
@@ -3439,7 +3513,7 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
   const camPos = new T.Vector3(), camLook = new T.Vector3(), camLookS = new T.Vector3(), camTgt = new T.Vector3(), tmp = new T.Vector3(), up = new T.Vector3();
   let FRAME = 0;
   function update(dt) {
-    S.t += dt; FRAME++;
+    S.t += dt; FRAME++; pollPad();
     if (S.respawnAt && S.t >= S.respawnAt) { S.respawnAt = 0; respawn(); }
     if (S.state === 'ride') {
       const n = Math.ceil(dt / (1 / 120)), h = dt / n;
@@ -3493,7 +3567,8 @@ body.editing #tricks,body.editing .tricks[hidden]{display:grid!important}body.ed
     updateTrain(S.t);
     bike.root.rotation.y = S.yaw + (S.mode !== 'car' && S.mode !== 'quad' && S.state === 'ride' ? (S.slip || 0) : 0);
     bike.pitch.position.y = (bike.pitch.userData.y0 ?? R) + (S.mode !== 'car' && S.mode !== 'quad' && S.state === 'ride' ? (S.sus || 0) : 0);
-    bike.pitch.rotation.x = S.th;
+    { const e = S.mode === 'bike' && S.state === 'ride' ? (S.endo || 0) : 0;
+      bike.pitch.rotation.x = S.th - e; bike.pitch.position.y += WB * Math.sin(e); bike.pitch.position.z = -WB * (1 - Math.cos(e)); }
     if (bike.parts && bike.parts.FrontWheel) {
       const spin = S.v * (1 / 0.336) * (1 / 60) * 60 * dt;
       bike.parts.FrontWheel.rotation.x -= spin; bike.parts.RearWheel.rotation.x -= spin;
